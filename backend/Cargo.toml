@@ -1,0 +1,20 @@
+[package]
+name = "graphalfred-backend"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+anyhow = "1.0"
+axum = "0.8"
+rusqlite = { version = "0.37", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tantivy = "0.25"
+tokio = { version = "1.46", features = ["macros", "rt-multi-thread", "signal"] }
+
+[profile.dev]
+debug = 1
+
+[profile.release]
+lto = true
+codegen-units = 1

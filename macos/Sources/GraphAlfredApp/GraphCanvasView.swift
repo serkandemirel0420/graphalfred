@@ -238,15 +238,32 @@ struct GraphCanvasView: View {
 
                     let edge = normalizeEdge(link.sourceId, link.targetId)
                     let isSelected = selectedLink?.sourceID == edge.0 && selectedLink?.targetID == edge.1
+                    let from = point(for: source, in: size)
+                    let to = point(for: target, in: size)
 
                     var path = Path()
-                    path.move(to: point(for: source, in: size))
-                    path.addLine(to: point(for: target, in: size))
-                    context.stroke(
-                        path,
-                        with: .color(isSelected ? Color.red.opacity(0.88) : Color.white.opacity(0.20)),
-                        lineWidth: isSelected ? 2.8 : 1.2
-                    )
+                    path.move(to: from)
+                    path.addLine(to: to)
+
+                    if isSelected {
+                        // Glow halo underneath
+                        context.stroke(
+                            path,
+                            with: .color(Color.cyan.opacity(0.18)),
+                            style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                        )
+                        context.stroke(
+                            path,
+                            with: .color(Color.cyan.opacity(0.85)),
+                            style: StrokeStyle(lineWidth: 2.0, lineCap: .round)
+                        )
+                    } else {
+                        context.stroke(
+                            path,
+                            with: .color(Color.white.opacity(0.14)),
+                            style: StrokeStyle(lineWidth: 1.0, lineCap: .round)
+                        )
+                    }
                 }
             }
             .allowsHitTesting(false)
@@ -300,81 +317,96 @@ struct GraphCanvasView: View {
                 .zIndex(isDragging ? 4 : (isHighlighted ? 2 : 1))
             }
 
-            if let selectedLink, isolatedNoteID == nil {
-                HStack(spacing: 7) {
+            if selectedLink != nil, isolatedNoteID == nil {
+                HStack(spacing: 6) {
                     Image(systemName: "link.badge.minus")
-                        .foregroundStyle(Color.red.opacity(0.95))
-                    Text("Connection selected (\(selectedLink.sourceID)-\(selectedLink.targetID)). Press Delete to remove.")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.red.opacity(0.88))
+                    Text("Connection selected")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                        .foregroundStyle(.white)
+                    Text("· Delete to remove")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.45))
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .position(x: size.width - 250, y: 24)
+                .background(Color.black.opacity(0.65))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.red.opacity(0.28), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .position(x: size.width / 2, y: 26)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             if let contextualNoteID, isolatedNoteID == nil, let note = noteMap[contextualNoteID] {
-                HStack(spacing: 7) {
+                HStack(spacing: 6) {
                     Image(systemName: "scope")
-                        .foregroundStyle(Color.cyan.opacity(0.92))
-                    Text("Context: \(note.title). Showing direct connections.")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.cyan.opacity(0.88))
+                    Text(note.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                        .foregroundStyle(.white)
+                    Text("· direct connections")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.45))
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .position(x: size.width / 2, y: 24)
+                .background(Color.black.opacity(0.65))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.cyan.opacity(0.22), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .position(x: size.width / 2, y: 26)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             if let linkingSourceNoteID, let source = noteMap[linkingSourceNoteID], isolatedNoteID == nil {
-                HStack(spacing: 7) {
-                    Image(systemName: "plus.circle.fill")
-                        .foregroundStyle(Color.cyan.opacity(0.92))
-                    Text("Select a note to connect with \(source.title)")
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.triangle.branch")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.cyan.opacity(0.88))
+                    Text("Connecting from")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.6))
+                    Text(source.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.85))
+                        .foregroundStyle(.white)
+                    Text("· click a node")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.45))
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .position(x: 180, y: 24)
+                .background(Color.black.opacity(0.65))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.cyan.opacity(0.22), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .position(x: size.width / 2, y: 26)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             if let isolatedNoteID, let note = noteMap[isolatedNoteID] {
-                VStack(spacing: 6) {
-                    Text("Focus Mode")
-                        .font(.system(size: 11, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.86))
+                HStack(spacing: 7) {
+                    Image(systemName: "square.3.layers.3d.top.filled")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(Color.cyan.opacity(0.88))
                     Text(note.title)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.72))
+                        .font(.system(size: 11, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.white)
+                    Text("· ESC to go up")
+                        .font(.system(size: 11, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color.white.opacity(0.42))
                 }
-                .padding(.horizontal, 10)
+                .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(.ultraThinMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 9, style: .continuous)
-                        .stroke(Color.white.opacity(0.18), lineWidth: 1)
-                )
-                .position(x: size.width / 2, y: 24)
+                .background(Color.black.opacity(0.65))
+                .clipShape(Capsule())
+                .overlay(Capsule().stroke(Color.cyan.opacity(0.28), lineWidth: 0.5))
+                .shadow(color: Color.cyan.opacity(0.12), radius: 12, y: 0)
+                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .position(x: size.width / 2, y: 26)
+                .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
             if let quickCreateDraft {
@@ -1069,21 +1101,17 @@ private struct QuickCreateNodeBubble: View {
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Circle()
-                .fill(Color.green.opacity(0.9))
-                .frame(width: 10, height: 10)
-
+        HStack(alignment: .center, spacing: 8) {
             TextField(
                 "",
                 text: $title,
-                prompt: Text("New linked note")
-                    .foregroundColor(Color.white.opacity(0.5))
+                prompt: Text("New note…")
+                    .foregroundColor(Color.white.opacity(0.35))
             )
             .textFieldStyle(.plain)
-            .font(.system(size: 18, weight: .semibold, design: .rounded))
+            .font(.system(size: 14, weight: .semibold, design: .rounded))
             .foregroundStyle(.white)
-            .frame(minWidth: 160, maxWidth: 280)
+            .frame(minWidth: 150, maxWidth: 260)
             .focused($isFocused)
             .onSubmit {
                 if hasValidTitle {
@@ -1093,19 +1121,24 @@ private struct QuickCreateNodeBubble: View {
 
             if hasValidTitle {
                 Image(systemName: "return")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Color.white.opacity(0.65))
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(Color.cyan.opacity(0.7))
+                    .padding(.horizontal, 5)
+                    .padding(.vertical, 3)
+                    .background(Color.cyan.opacity(0.12))
+                    .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 7)
-        .background(Color.black.opacity(0.42))
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(Color.white.opacity(0.07))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(isFocused ? Color.green.opacity(0.82) : Color.white.opacity(0.24), lineWidth: isFocused ? 1.8 : 1)
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(Color.cyan.opacity(0.55), lineWidth: 1.5)
         )
-        .shadow(color: Color.black.opacity(0.38), radius: 7, y: 3)
+        .shadow(color: Color.black.opacity(0.36), radius: 10, y: 4)
+        .shadow(color: Color.cyan.opacity(0.18), radius: 14, y: 0)
         .onExitCommand {
             onCancel()
         }
@@ -1122,69 +1155,62 @@ private struct NodeBubbleView: View {
     let isHighlighted: Bool
     let isBeingDragged: Bool
 
-    private var nodeBackground: Color {
-        if isBeingDragged {
-            return Color.orange.opacity(0.2)
-        }
-        if isHighlighted {
-            return Color.green.opacity(0.22)
-        }
-        return Color.black.opacity(0.52)
-    }
-
-    private var nodeStrokeColor: Color {
-        if isBeingDragged {
-            return Color.orange.opacity(0.95)
-        }
-        if isHighlighted {
-            return Color.green.opacity(0.8)
-        }
-        return Color.white.opacity(0.18)
-    }
-
-    private var nodeStrokeWidth: CGFloat {
-        if isBeingDragged {
-            return 1.8
-        }
-        return isHighlighted ? 2 : 1
-    }
-
     private var nodeScale: CGFloat {
+        isBeingDragged ? 1.06 : (isHighlighted ? 1.04 : 1.0)
+    }
+
+    private var bubbleFillColor: Color {
         if isBeingDragged {
-            return 1.04
+            return Color.orange.opacity(0.18)
         }
-        return isHighlighted ? 1.02 : 1
+        if isHighlighted {
+            return Color.cyan.opacity(0.15)
+        }
+        return Color.white.opacity(0.07)
+    }
+
+    private var bubbleStrokeColor: Color {
+        if isBeingDragged {
+            return Color.orange.opacity(0.75)
+        }
+        if isHighlighted {
+            return Color.cyan.opacity(0.62)
+        }
+        return Color.white.opacity(0.11)
+    }
+
+    private var bubbleStrokeWidth: CGFloat {
+        (isHighlighted || isBeingDragged) ? 1.5 : 1.0
     }
 
     var body: some View {
-        HStack(alignment: .center, spacing: 10) {
-            Circle()
-                .fill(isBeingDragged ? Color.orange : (isHighlighted ? Color.green : Color.white.opacity(0.78)))
-                .frame(width: 10, height: 10)
+        VStack(alignment: .leading, spacing: 2) {
+            Text(note.title)
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white)
+                .lineLimit(1)
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(note.title)
-                    .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+            if !note.subtitle.isEmpty {
+                Text(note.subtitle)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.50))
                     .lineLimit(1)
-
-                if !note.subtitle.isEmpty {
-                    Text(note.subtitle)
-                        .font(.system(size: 12, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.7))
-                        .lineLimit(1)
-                }
             }
         }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 7)
-        .background(nodeBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(nodeStrokeColor, lineWidth: nodeStrokeWidth)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 9)
+        .background(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(bubbleFillColor)
         )
-        .shadow(color: Color.black.opacity(0.42), radius: 8, y: 3)
+        .overlay(
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .stroke(bubbleStrokeColor, lineWidth: bubbleStrokeWidth)
+        )
+        .shadow(color: Color.black.opacity(0.36), radius: 10, y: 4)
+        .shadow(color: isHighlighted ? Color.cyan.opacity(0.30) : Color.clear, radius: 14, y: 0)
+        .shadow(color: isBeingDragged ? Color.orange.opacity(0.22) : Color.clear, radius: 12, y: 0)
         .scaleEffect(nodeScale)
+        .animation(.spring(response: 0.22, dampingFraction: 0.72), value: nodeScale)
     }
 }

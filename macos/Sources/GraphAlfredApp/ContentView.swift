@@ -15,72 +15,98 @@ struct ContentView: View {
             )
             .ignoresSafeArea()
 
-            VStack(alignment: .leading, spacing: 18) {
-                HStack(spacing: 12) {
-                    Button("New Note") {
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 6) {
+                    // Primary action
+                    Button {
                         viewModel.createNote()
-                    }
-                    .buttonStyle(GraphSecondaryButtonStyle())
-
-                    Button("Auto Align") {
-                        Task {
-                            await viewModel.autoAlign()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 11, weight: .bold))
+                            Text("New Note")
                         }
                     }
-                    .buttonStyle(GraphSecondaryButtonStyle())
-
-                    Button("Search") {
-                        viewModel.showSearch()
-                    }
-                    .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: .command)
                     .buttonStyle(GraphPrimaryButtonStyle())
+
+                    toolbarDivider()
+
+                    // Canvas tools
+                    Button {
+                        Task { await viewModel.autoAlign() }
+                    } label: {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                    }
+                    .buttonStyle(ToolbarIconButtonStyle())
+                    .help("Auto Align")
 
                     Button {
                         canvasControlCommand = CanvasControlCommandToken(command: .zoomOut)
                     } label: {
                         Image(systemName: "minus.magnifyingglass")
                     }
-                    .buttonStyle(GraphSecondaryButtonStyle())
+                    .buttonStyle(ToolbarIconButtonStyle())
+                    .help("Zoom Out")
 
                     Button {
                         canvasControlCommand = CanvasControlCommandToken(command: .zoomIn)
                     } label: {
                         Image(systemName: "plus.magnifyingglass")
                     }
-                    .buttonStyle(GraphSecondaryButtonStyle())
+                    .buttonStyle(ToolbarIconButtonStyle())
+                    .help("Zoom In")
 
-                    Button("Reset") {
+                    Button {
                         canvasControlCommand = CanvasControlCommandToken(command: .reset)
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
                     }
+                    .buttonStyle(ToolbarIconButtonStyle())
+                    .help("Reset View")
+
+                    toolbarDivider()
+
+                    // Search
+                    Button {
+                        viewModel.showSearch()
+                    } label: {
+                        HStack(spacing: 5) {
+                            Image(systemName: "magnifyingglass")
+                                .font(.system(size: 11, weight: .semibold))
+                            Text("Search")
+                        }
+                    }
+                    .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: .command)
                     .buttonStyle(GraphSecondaryButtonStyle())
 
                     Spacer()
 
+                    // Status indicators
                     if let draggingTitle = viewModel.activeDragTitle {
-                        Text("Moving: \(draggingTitle)")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.orange.opacity(0.95))
+                        Label(draggingTitle, systemImage: "arrow.up.and.down.and.arrow.left.and.right")
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color.orange.opacity(0.9))
                             .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.black.opacity(0.30))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                    }
-
-                    if let isolatedNoteId = viewModel.isolatedNoteId,
-                       let note = viewModel.graph.notes.first(where: { $0.id == isolatedNoteId }) {
-                        Text("Focus: \(note.title)  •  Click background or Esc to show all")
-                            .font(.system(size: 12, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.cyan.opacity(0.95))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 6)
-                            .background(Color.black.opacity(0.30))
-                            .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                            .padding(.vertical, 5)
+                            .background(Color.orange.opacity(0.10))
+                            .clipShape(Capsule())
+                            .overlay(Capsule().stroke(Color.orange.opacity(0.22), lineWidth: 0.5))
                     }
 
                     if viewModel.isBusy {
                         ProgressView()
-                            .tint(.white)
+                            .tint(Color.white.opacity(0.6))
+                            .scaleEffect(0.75)
                     }
+
+                    // Settings
+                    Button {
+                        viewModel.showSettings()
+                    } label: {
+                        Image(systemName: "gearshape")
+                    }
+                    .buttonStyle(ToolbarIconButtonStyle())
+                    .help("Settings")
                 }
 
                 GraphCanvasView(
@@ -255,6 +281,13 @@ struct ContentView: View {
 
     private var isInspectorVisible: Bool {
         viewModel.editingDraft != nil || viewModel.selectedNote != nil
+    }
+
+    @ViewBuilder
+    private func toolbarDivider() -> some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.1))
+            .frame(width: 1, height: 18)
     }
 
     private var draftBinding: Binding<NoteDraft> {

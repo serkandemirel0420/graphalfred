@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: GraphViewModel
+    @Environment(\.openWindow) private var openWindow
     @State private var hotKeyManager = GlobalHotKeyManager()
     @State private var isEditorExpanded = false
     @State private var canvasControlCommand: CanvasControlCommandToken?
@@ -76,7 +77,7 @@ struct ContentView: View {
                             Text("Search")
                         }
                     }
-                    .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: .command)
+                    .keyboardShortcut(viewModel.settings.inAppSearchKey.asKeyEquivalent, modifiers: .command)
                     .buttonStyle(GraphSecondaryButtonStyle())
 
                     Spacer()
@@ -101,7 +102,7 @@ struct ContentView: View {
 
                     // Settings
                     Button {
-                        viewModel.showSettings()
+                        openWindow(id: "settings")
                     } label: {
                         Image(systemName: "gearshape")
                     }
@@ -121,13 +122,15 @@ struct ContentView: View {
                     },
                     controlCommand: canvasControlCommand,
                     theme: viewModel.settings.theme,
-                    allowsRightMousePan: viewModel.settings.rightClickPanEnabled,
                     allowsDragToConnect: viewModel.settings.dragToConnectEnabled,
                     onSelect: { note in
                         viewModel.highlightNote(note)
                     },
                     onDoubleSelect: { note in
                         viewModel.openEditor(for: note)
+                        if viewModel.settings.editorOpensAsModal {
+                            isEditorExpanded = true
+                        }
                     },
                     onIsolateNode: { noteID in
                         viewModel.setIsolatedNote(id: noteID)
@@ -154,6 +157,12 @@ struct ContentView: View {
                     },
                     onViewStateChange: { pan, zoom in
                         viewModel.saveCanvasViewState(panX: pan.width, panY: pan.height, zoom: zoom)
+                    },
+                    onEscapeEditor: {
+                        guard viewModel.editingDraft != nil else { return false }
+                        isEditorExpanded = false
+                        viewModel.closeEditor()
+                        return true
                     },
                     initialPanOffset: CGSize(
                         width: viewModel.settings.canvasPanX,
@@ -226,21 +235,13 @@ struct ContentView: View {
                 await viewModel.searchIfNeeded()
             }
         }
-        .onChange(of: viewModel.settings.globalSearchHotKey) { _ in
+        .onChange(of: viewModel.settings.globalHotKeyConfig) { _ in
             restartGlobalHotKey()
         }
         .onChange(of: viewModel.editingDraft?.id) { next in
             if next == nil {
                 isEditorExpanded = false
             }
-        }
-        .sheet(isPresented: settingsPresentedBinding) {
-            SettingsPanel(
-                settings: settingsBinding,
-                onClose: {
-                    viewModel.hideSettings()
-                }
-            )
         }
     }
 
@@ -249,13 +250,9 @@ struct ContentView: View {
         if viewModel.editingDraft != nil {
             NoteEditorPanel(
                 draft: draftBinding,
-                allNotes: viewModel.relationCandidates(for: viewModel.editingDraft),
                 isExpanded: false,
                 onToggleExpand: {
                     isEditorExpanded = true
-                },
-                onToggleRelation: { noteID, enabled in
-                    viewModel.updateDraftRelation(noteID: noteID, enabled: enabled)
                 },
                 onCancel: {
                     isEditorExpanded = false
@@ -315,28 +312,8 @@ struct ContentView: View {
         }
     }
 
-    private var settingsPresentedBinding: Binding<Bool> {
-        Binding {
-            viewModel.isSettingsVisible
-        } set: { isPresented in
-            if isPresented {
-                viewModel.showSettings()
-            } else {
-                viewModel.hideSettings()
-            }
-        }
-    }
-
-    private var settingsBinding: Binding<AppSettings> {
-        Binding {
-            viewModel.settings
-        } set: { settings in
-            viewModel.applySettings(settings)
-        }
-    }
-
     private func restartGlobalHotKey() {
-        hotKeyManager.start(shortcut: viewModel.settings.globalSearchHotKey) {
+        hotKeyManager.start(config: viewModel.settings.globalHotKeyConfig) {
             Task { @MainActor in
                 viewModel.showSearchFromGlobalHotKey()
             }
@@ -361,13 +338,9 @@ struct ContentView: View {
 
                 NoteEditorPanel(
                     draft: draftBinding,
-                    allNotes: viewModel.relationCandidates(for: viewModel.editingDraft),
                     isExpanded: true,
                     onToggleExpand: {
                         isEditorExpanded = false
-                    },
-                    onToggleRelation: { noteID, enabled in
-                        viewModel.updateDraftRelation(noteID: noteID, enabled: enabled)
                     },
                     onCancel: {
                         isEditorExpanded = false

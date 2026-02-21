@@ -35,9 +35,10 @@ extension AppTheme {
     }
 }
 
-extension InAppSearchShortcut {
-    var keyEquivalent: KeyEquivalent {
-        KeyEquivalent(Character(rawValue))
+extension String {
+    /// Returns a SwiftUI KeyEquivalent from the first character of this string.
+    var asKeyEquivalent: KeyEquivalent {
+        KeyEquivalent(Character(self.isEmpty ? "k" : String(self.prefix(1))))
     }
 }
 

@@ -90,21 +90,12 @@ struct NoteViewerPanel: View {
 
 struct NoteEditorPanel: View {
     @Binding var draft: NoteDraft
-    let allNotes: [Note]
     let isExpanded: Bool
     let onToggleExpand: (() -> Void)?
-    let onToggleRelation: (Int64, Bool) -> Void
     let onCancel: () -> Void
     let onSave: () -> Void
 
-    @State private var attachedImages: [Data] = []
-    @State private var pasteStatus: String?
-    @State private var relatedExpanded = false
-    @FocusState private var focusedField: EditorField?
-
-    private enum EditorField: Hashable {
-        case title, subtitle, content
-    }
+    @FocusState private var titleFocused: Bool
 
     private var hasSaveableTitle: Bool {
         !draft.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -121,7 +112,6 @@ struct NoteEditorPanel: View {
             }
         }
         .onExitCommand { onCancel() }
-        .onAppear { loadAttachedImages() }
     }
 
     // MARK: – Header
@@ -166,8 +156,7 @@ struct NoteEditorPanel: View {
                         .font(.system(size: 18, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color(white: 0.10))
                         .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .title)
-                        .onSubmit { focusedField = .subtitle }
+                        .focused($titleFocused)
                 }
 
                 rowDivider()
@@ -178,157 +167,31 @@ struct NoteEditorPanel: View {
                         .font(.system(size: 14, weight: .regular, design: .rounded))
                         .foregroundStyle(Color(white: 0.38))
                         .textFieldStyle(.plain)
-                        .focused($focusedField, equals: .subtitle)
-                        .onSubmit { focusedField = .content }
                 }
 
                 rowDivider()
 
-                // Content
+                // Content — rich text editor with inline image paste
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         editorLabel("Content")
                         Spacer()
-                        if let pasteStatus {
-                            Text(pasteStatus)
-                                .font(.system(size: 11, weight: .regular, design: .rounded))
-                                .foregroundStyle(Color(white: 0.52))
-                        }
-                        Button("Paste Image") { pasteImageFromClipboard() }
-                            .buttonStyle(GraphSecondaryButtonStyle())
+                        Text("⌘V to paste images")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(white: 0.58))
                     }
 
-                    TextEditor(text: $draft.content)
-                        .font(.system(size: 14, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color(white: 0.15))
-                        .scrollContentBackground(.hidden)
-                        .padding(10)
+                    RichTextEditor(content: $draft.content)
+                        .frame(minHeight: isExpanded ? 320 : 180)
                         .background(Color.black.opacity(0.03))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
                                 .stroke(Color.black.opacity(0.07), lineWidth: 1)
                         )
-                        .focused($focusedField, equals: .content)
-                        .frame(minHeight: isExpanded ? 280 : 160)
-
-                    // Inline image attachments
-                    if !attachedImages.isEmpty {
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 10) {
-                                ForEach(Array(attachedImages.enumerated()), id: \.offset) { index, data in
-                                    if let image = NSImage(data: data) {
-                                        ZStack(alignment: .topTrailing) {
-                                            Image(nsImage: image)
-                                                .resizable()
-                                                .scaledToFill()
-                                                .frame(width: 100, height: 80)
-                                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                                                .overlay(
-                                                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
-                                                )
-
-                                            Button {
-                                                attachedImages.remove(at: index)
-                                            } label: {
-                                                Image(systemName: "xmark.circle.fill")
-                                                    .font(.system(size: 16, weight: .bold))
-                                                    .foregroundStyle(Color(white: 0.30))
-                                                    .shadow(color: .white.opacity(0.8), radius: 2)
-                                            }
-                                            .buttonStyle(.plain)
-                                            .offset(x: 6, y: -6)
-                                        }
-                                    }
-                                }
-                            }
-                            .padding(.top, 4)
-                        }
-                    }
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 14)
-
-                // Related notes (collapsible)
-                if !allNotes.isEmpty {
-                    rowDivider()
-                    relatedNotesSection
-                }
-            }
-        }
-    }
-
-    // MARK: – Related notes
-
-    private var relatedNotesSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeInOut(duration: 0.15)) {
-                    relatedExpanded.toggle()
-                }
-            } label: {
-                HStack {
-                    editorLabel("Related Notes")
-
-                    let selectedCount = allNotes.filter { draft.relatedIds.contains($0.id) }.count
-                    if selectedCount > 0 {
-                        Text("\(selectedCount)")
-                            .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(Color(white: 0.12))
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.black.opacity(0.09))
-                            .clipShape(Capsule())
-                    }
-
-                    Spacer()
-
-                    Image(systemName: relatedExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.55))
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-            }
-            .buttonStyle(.plain)
-
-            if relatedExpanded {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(allNotes.filter { $0.id != draft.existingId }) { note in
-                        Button {
-                            onToggleRelation(note.id, !draft.relatedIds.contains(note.id))
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: draft.relatedIds.contains(note.id)
-                                      ? "checkmark.circle.fill"
-                                      : "circle")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundStyle(draft.relatedIds.contains(note.id)
-                                                     ? Color(white: 0.15) : Color(white: 0.70))
-
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(note.title)
-                                        .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundStyle(Color(white: 0.12))
-                                    if !note.subtitle.isEmpty {
-                                        Text(note.subtitle)
-                                            .font(.system(size: 11, weight: .regular, design: .rounded))
-                                            .foregroundStyle(Color(white: 0.50))
-                                    }
-                                }
-                                Spacer()
-                            }
-                            .padding(.horizontal, 20)
-                            .padding(.vertical, 9)
-                        }
-                        .buttonStyle(.plain)
-
-                        Rectangle().fill(Color.black.opacity(0.04)).frame(height: 1)
-                            .padding(.horizontal, 20)
-                    }
-                }
-                .frame(maxHeight: 200)
             }
         }
     }
@@ -346,7 +209,7 @@ struct NoteEditorPanel: View {
                 .font(.system(size: 11, weight: .regular, design: .rounded))
                 .foregroundStyle(Color(white: 0.55))
 
-            Button("Save") { commitAndSave() }
+            Button("Save") { onSave() }
                 .disabled(!hasSaveableTitle)
                 .buttonStyle(GraphPrimaryButtonStyle())
                 .keyboardShortcut(.return, modifiers: [.command])
@@ -391,61 +254,204 @@ struct NoteEditorPanel: View {
     private func rowDivider() -> some View {
         Rectangle().fill(Color.black.opacity(0.05)).frame(height: 1)
     }
+}
 
-    private func pasteImageFromClipboard() {
-        guard let image = NSImage(pasteboard: NSPasteboard.general) else {
-            pasteStatus = "No image in clipboard."
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { pasteStatus = nil }
-            return
+// MARK: – Rich text editor (NSTextView-backed)
+
+private final class ImageTextAttachment: NSTextAttachment {
+    /// Original PNG data so we can serialize back to base64 markdown on save.
+    var pngData: Data?
+}
+
+private final class RichTextNSTextView: NSTextView {
+    override func paste(_ sender: Any?) {
+        let pb = NSPasteboard.general
+        if pb.canReadObject(forClasses: [NSImage.self], options: nil),
+           let image = NSImage(pasteboard: pb),
+           let data = image.pngData() {
+            insertRichImage(image, pngData: data)
+        } else if let string = pb.string(forType: .string) {
+            insertText(string, replacementRange: selectedRange())
+        } else {
+            super.paste(sender)
         }
-
-        guard let pngData = image.pngData() else {
-            pasteStatus = "Could not convert image."
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { pasteStatus = nil }
-            return
-        }
-
-        attachedImages.append(pngData)
-        pasteStatus = "Image attached."
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { pasteStatus = nil }
     }
 
-    private func loadAttachedImages() {
-        let pattern = #"!\[[^\]]*\]\(data:image/[^;]+;base64,([^)]+)\)"#
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return }
+    func insertRichImage(_ image: NSImage, pngData: Data) {
+        let attachment = ImageTextAttachment()
+        attachment.pngData = pngData
+        let maxW: CGFloat = 380
+        let sz = image.size
+        let scale = sz.width > maxW ? maxW / sz.width : 1.0
+        let displaySize = CGSize(width: sz.width * scale, height: sz.height * scale)
+        attachment.image = image
+        attachment.bounds = CGRect(origin: .zero, size: displaySize)
 
-        let ns = draft.content as NSString
-        let fullRange = NSRange(location: 0, length: ns.length)
-        let matches = regex.matches(in: draft.content, range: fullRange)
+        let attStr = NSAttributedString(attachment: attachment)
+        let nl = NSAttributedString(string: "\n", attributes: typingAttributes)
+        guard let storage = textStorage else { return }
+        let loc = selectedRange().location
+        storage.beginEditing()
+        storage.insert(nl, at: loc)
+        storage.insert(attStr, at: loc + 1)
+        storage.insert(nl, at: loc + 2)
+        storage.endEditing()
+        setSelectedRange(NSRange(location: loc + 3, length: 0))
+        delegate?.textDidChange?(Notification(name: NSText.didChangeNotification, object: self))
+    }
+}
 
-        var extracted: [Data] = []
-        var strippedContent = draft.content
+struct RichTextEditor: NSViewRepresentable {
+    @Binding var content: String
 
-        for match in matches.reversed() {
-            let base64Range = match.range(at: 1)
-            if base64Range.location != NSNotFound,
-               let b64 = ns.substring(with: base64Range) as String?,
-               let data = Data(base64Encoded: b64) {
-                extracted.insert(data, at: 0)
-            }
-            let fullMatchRange = Range(match.range(at: 0), in: strippedContent)
-            if let range = fullMatchRange {
-                strippedContent.removeSubrange(range)
-            }
-        }
+    func makeNSView(context: Context) -> NSScrollView {
+        let scrollView = NSScrollView()
+        let textView = RichTextNSTextView()
 
-        attachedImages = extracted
-        draft.content = strippedContent.trimmingCharacters(in: .whitespacesAndNewlines)
+        textView.isRichText = true
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.font = NSFont.systemFont(ofSize: 14)
+        textView.textColor = NSColor(white: 0.15, alpha: 1)
+        textView.backgroundColor = .clear
+        textView.drawsBackground = false
+        textView.textContainerInset = NSSize(width: 10, height: 10)
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = false
+        textView.autoresizingMask = [.width]
+        textView.allowsImageEditing = false
+        textView.importsGraphics = false
+        textView.delegate = context.coordinator
+        textView.textStorage?.setAttributedString(Self.markdownToAttributed(content))
+
+        scrollView.documentView = textView
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = false
+        scrollView.autohidesScrollers = true
+        scrollView.borderType = .noBorder
+        scrollView.drawsBackground = false
+
+        context.coordinator.textView = textView
+        context.coordinator.lastSync = content
+        return scrollView
     }
 
-    private func commitAndSave() {
-        var combined = draft.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        for data in attachedImages {
-            let b64 = data.base64EncodedString()
-            combined += "\n\n![Pasted image](data:image/png;base64,\(b64))"
+    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+        guard let textView = scrollView.documentView as? RichTextNSTextView else { return }
+        let coordinator = context.coordinator
+        guard !coordinator.isEditing, content != coordinator.lastSync else { return }
+        textView.textStorage?.setAttributedString(Self.markdownToAttributed(content))
+        coordinator.lastSync = content
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    // MARK: Coordinator
+
+    final class Coordinator: NSObject, NSTextViewDelegate {
+        var parent: RichTextEditor
+        fileprivate weak var textView: RichTextNSTextView?
+        var isEditing = false
+        var lastSync = ""
+
+        init(_ p: RichTextEditor) { parent = p }
+
+        func textDidChange(_ notification: Notification) {
+            guard let tv = notification.object as? NSTextView else { return }
+            isEditing = true
+            let markdown = RichTextEditor.attributedToMarkdown(tv.attributedString())
+            parent.content = markdown
+            lastSync = markdown
+            isEditing = false
         }
-        draft.content = combined
-        onSave()
+    }
+
+    // MARK: Conversions
+
+    static func markdownToAttributed(_ content: String) -> NSAttributedString {
+        let defaultAttrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 14),
+            .foregroundColor: NSColor(white: 0.15, alpha: 1)
+        ]
+
+        let pattern = #"!\[[^\]]*\]\(([^)]+)\)"#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else {
+            return NSAttributedString(string: content, attributes: defaultAttrs)
+        }
+
+        let nsContent = content as NSString
+        let fullRange = NSRange(location: 0, length: nsContent.length)
+        let matches = regex.matches(in: content, options: [], range: fullRange)
+
+        guard !matches.isEmpty else {
+            return NSAttributedString(string: content, attributes: defaultAttrs)
+        }
+
+        let result = NSMutableAttributedString()
+        var cursor = 0
+
+        for match in matches {
+            let fullMatch = match.range(at: 0)
+            let pathRange = match.range(at: 1)
+
+            if fullMatch.location > cursor {
+                let textPart = nsContent.substring(with: NSRange(location: cursor, length: fullMatch.location - cursor))
+                result.append(NSAttributedString(string: textPart, attributes: defaultAttrs))
+            }
+
+            if pathRange.location != NSNotFound,
+               let data = imageData(from: nsContent.substring(with: pathRange)),
+               let img = NSImage(data: data) {
+                let attachment = ImageTextAttachment()
+                attachment.pngData = data
+                let maxW: CGFloat = 380
+                let sz = img.size
+                let scale = sz.width > maxW ? maxW / sz.width : 1.0
+                attachment.image = img
+                attachment.bounds = CGRect(origin: .zero, size: CGSize(width: sz.width * scale, height: sz.height * scale))
+                result.append(NSAttributedString(string: "\n", attributes: defaultAttrs))
+                result.append(NSAttributedString(attachment: attachment))
+                result.append(NSAttributedString(string: "\n", attributes: defaultAttrs))
+            }
+
+            cursor = fullMatch.location + fullMatch.length
+        }
+
+        if cursor < nsContent.length {
+            result.append(NSAttributedString(string: nsContent.substring(from: cursor), attributes: defaultAttrs))
+        }
+
+        return result
+    }
+
+    static func attributedToMarkdown(_ attributed: NSAttributedString) -> String {
+        var result = ""
+        let fullRange = NSRange(location: 0, length: attributed.length)
+
+        attributed.enumerateAttributes(in: fullRange, options: []) { attrs, range, _ in
+            if let attachment = attrs[.attachment] as? ImageTextAttachment, let data = attachment.pngData {
+                let b64 = data.base64EncodedString()
+                result += "\n![Image](data:image/png;base64,\(b64))\n"
+            } else if let attachment = attrs[.attachment] as? NSTextAttachment,
+                      let img = attachment.image, let data = img.pngData() {
+                let b64 = data.base64EncodedString()
+                result += "\n![Image](data:image/png;base64,\(b64))\n"
+            } else {
+                let text = attributed.attributedSubstring(from: range).string
+                result += text.filter { $0 != "\u{FFFC}" }
+            }
+        }
+
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private static func imageData(from path: String) -> Data? {
+        if path.hasPrefix("data:image"), let commaIdx = path.firstIndex(of: ",") {
+            return Data(base64Encoded: String(path[path.index(after: commaIdx)...]))
+        }
+        if let url = URL(string: path), url.isFileURL { return try? Data(contentsOf: url) }
+        if path.hasPrefix("/") { return try? Data(contentsOf: URL(fileURLWithPath: path)) }
+        return nil
     }
 }
 
@@ -576,6 +582,7 @@ struct QuickSearchOverlay: View {
     let onPick: (Note) -> Void
 
     @FocusState private var isFocused: Bool
+    @State private var selectedIndex: Int = 0
 
     var body: some View {
         ZStack {
@@ -595,9 +602,19 @@ struct QuickSearchOverlay: View {
                             .font(.system(size: 22, weight: .medium, design: .rounded))
                             .foregroundStyle(Color(white: 0.10))
                             .onSubmit {
-                                if let first = results.first {
+                                if results.indices.contains(selectedIndex) {
+                                    onPick(results[selectedIndex])
+                                } else if let first = results.first {
                                     onPick(first)
                                 }
+                            }
+                            .onKeyPress(.upArrow) {
+                                selectedIndex = max(0, selectedIndex - 1)
+                                return .handled
+                            }
+                            .onKeyPress(.downArrow) {
+                                selectedIndex = min(results.count - 1, selectedIndex + 1)
+                                return .handled
                             }
 
                         Spacer()
@@ -614,45 +631,64 @@ struct QuickSearchOverlay: View {
 
                     Divider()
 
-                    ScrollView {
-                        LazyVStack(alignment: .leading, spacing: 0) {
-                            if results.isEmpty {
-                                Text(query.isEmpty ? "Type to search notes" : "No results")
-                                    .foregroundStyle(Color(white: 0.55))
-                                    .font(.system(size: 14, weight: .regular, design: .rounded))
-                                    .padding(18)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-
-                            ForEach(results) { note in
-                                Button {
-                                    onPick(note)
-                                } label: {
-                                    VStack(alignment: .leading, spacing: 4) {
-                                        Text(note.title)
-                                            .font(.system(size: 16, weight: .semibold, design: .rounded))
-                                            .foregroundStyle(Color(white: 0.10))
-                                        if !note.subtitle.isEmpty {
-                                            Text(note.subtitle)
-                                                .font(.system(size: 13, weight: .regular, design: .rounded))
-                                                .foregroundStyle(Color(white: 0.48))
-                                        }
-                                        Text(note.content)
-                                            .font(.system(size: 12, weight: .regular, design: .rounded))
-                                            .lineLimit(2)
-                                            .foregroundStyle(Color(white: 0.55))
-                                    }
-                                    .padding(14)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
+                    ScrollViewReader { proxy in
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 0) {
+                                if results.isEmpty {
+                                    Text(query.isEmpty ? "Type to search notes" : "No results")
+                                        .foregroundStyle(Color(white: 0.55))
+                                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                                        .padding(18)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .buttonStyle(.plain)
 
-                                Divider()
+                                ForEach(Array(results.enumerated()), id: \.element.id) { idx, note in
+                                    Button {
+                                        onPick(note)
+                                    } label: {
+                                        VStack(alignment: .leading, spacing: 4) {
+                                            HStack(spacing: 6) {
+                                                if note.parentId != nil {
+                                                    Image(systemName: "arrow.turn.down.right")
+                                                        .font(.system(size: 10, weight: .semibold))
+                                                        .foregroundStyle(Color(white: 0.55))
+                                                }
+                                                Text(note.title)
+                                                    .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                                    .foregroundStyle(Color(white: 0.10))
+                                            }
+                                            if !note.subtitle.isEmpty {
+                                                Text(note.subtitle)
+                                                    .font(.system(size: 13, weight: .regular, design: .rounded))
+                                                    .foregroundStyle(Color(white: 0.48))
+                                            }
+                                            let preview = contentPreview(note.content)
+                                            if !preview.isEmpty {
+                                                Text(preview)
+                                                    .font(.system(size: 12, weight: .regular, design: .rounded))
+                                                    .lineLimit(2)
+                                                    .foregroundStyle(Color(white: 0.55))
+                                            }
+                                        }
+                                        .padding(14)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .background(idx == selectedIndex
+                                            ? Color(white: 0.12).opacity(0.06)
+                                            : Color.clear)
+                                    }
+                                    .buttonStyle(.plain)
+                                    .id(idx)
+
+                                    Divider()
+                                }
                             }
+                        }
+                        .onChange(of: selectedIndex) { idx in
+                            withAnimation { proxy.scrollTo(idx, anchor: .center) }
                         }
                     }
                 }
-                .frame(width: 720, height: 400)
+                .frame(width: 720, height: 420)
                 .background(Color(red: 0.97, green: 0.97, blue: 0.98))
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
@@ -665,11 +701,21 @@ struct QuickSearchOverlay: View {
                 Spacer()
             }
             .onAppear {
-                DispatchQueue.main.async {
-                    isFocused = true
-                }
+                DispatchQueue.main.async { isFocused = true }
             }
             .onExitCommand(perform: onClose)
         }
+        .onChange(of: results) { _ in selectedIndex = 0 }
+    }
+
+    /// Strips base64 image markdown from content for a clean preview.
+    private func contentPreview(_ content: String) -> String {
+        let stripped = content.replacingOccurrences(
+            of: #"!\[[^\]]*\]\(data:image[^)]+\)"#,
+            with: "",
+            options: .regularExpression
+        )
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stripped
     }
 }

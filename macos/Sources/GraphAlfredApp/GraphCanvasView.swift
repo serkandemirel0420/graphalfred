@@ -27,7 +27,6 @@ struct GraphCanvasView: View {
     let resolveFocusParentID: (Int64) -> Int64?
     let controlCommand: CanvasControlCommandToken?
     let theme: AppTheme
-    let allowsRightMousePan: Bool
     let allowsDragToConnect: Bool
     let onSelect: (Note) -> Void
     let onDoubleSelect: (Note) -> Void
@@ -39,6 +38,9 @@ struct GraphCanvasView: View {
     let onQuickCreate: (String, Double, Double, Int64?, Int64?) -> Void
     let onDragStateChange: (Int64?) -> Void
     let onViewStateChange: (CGSize, CGFloat) -> Void
+    /// Called when ESC is pressed. Return `true` to consume the event (editor was closed),
+    /// `false` to let the canvas handle it normally.
+    var onEscapeEditor: (() -> Bool)? = nil
     let initialPanOffset: CGSize
     let initialZoomScale: CGFloat
 
@@ -49,6 +51,9 @@ struct GraphCanvasView: View {
     @State private var tapCount = 0
     @State private var lastTapTime: Date = .distantPast
     @State private var pendingDoubleAction: DispatchWorkItem?
+    @State private var pendingBackgroundAction: DispatchWorkItem?
+    @State private var backgroundTapCount: Int = 0
+    @State private var lastBackgroundTapTime: Date = .distantPast
     @State private var linkingSourceNoteID: Int64?
     @State private var contextualNoteID: Int64?
     @State private var selectedLink: (sourceID: Int64, targetID: Int64)?
@@ -65,9 +70,7 @@ struct GraphCanvasView: View {
     @State private var keyUpMonitor: Any?
     @State private var scrollMonitor: Any?
     @State private var rightMouseMonitor: Any?
-    @State private var isRightMousePanning = false
-    @State private var rightMouseStartLocation: CGPoint?
-    @State private var rightMousePanOrigin: CGSize = .zero
+    @State private var lastRightClickWindowPoint: CGPoint = .zero
     @State private var lastEscapePressTime: Date = .distantPast
     @State private var pendingEscapeParentID: Int64?
     @State private var focusReturnContextID: Int64?
@@ -144,6 +147,8 @@ struct GraphCanvasView: View {
             .onChange(of: zoomScale) { _ in scheduleViewStateSave() }
             .onDisappear {
                 pendingDoubleAction?.cancel()
+                pendingBackgroundAction?.cancel()
+                backgroundTapCount = 0
                 onDragStateChange(nil)
                 transientNodePositions.removeAll()
                 selectedLink = nil
@@ -219,7 +224,17 @@ struct GraphCanvasView: View {
                 .fill(Color.clear)
                 .contentShape(Rectangle())
                 .gesture(backgroundTapGesture(in: size))
-
+                .contextMenu {
+                    Button("New Note") {
+                        let graphPos = approximateGraphPoint(from: lastRightClickWindowPoint, in: size)
+                        quickCreateDraft = QuickCreateDraft(
+                            title: "",
+                            graphPoint: graphPos,
+                            connectToID: nil,
+                            focusParentID: isolatedNoteID ?? activeIsolatedNoteID
+                        )
+                    }
+                }
                 .onHover { hovering in
                     isHoveringBackground = hovering
                     if hovering {
@@ -314,6 +329,24 @@ struct GraphCanvasView: View {
                             NSCursor.pop()
                         }
                     }
+                    .contextMenu {
+                        Button("Edit") {
+                            onDoubleSelect(note)
+                        }
+                        Divider()
+                        Button("Delete", role: .destructive) {
+                            if activeIsolatedNoteID == note.id || isolatedNoteID == note.id {
+                                activeIsolatedNoteID = nil
+                                contextualNoteID = nil
+                                pendingEscapeParentID = nil
+                                focusReturnContextID = nil
+                                onIsolateNode(nil)
+                            }
+                            linkingSourceNoteID = nil
+                            quickCreateDraft = nil
+                            onDeleteNote(note.id)
+                        }
+                    }
 
                     if showsConnectHandle {
                         connectHandle(for: note.id, isActive: linkingSourceNoteID == note.id)
@@ -394,26 +427,23 @@ struct GraphCanvasView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
-            if let isolatedNoteID, let note = noteMap[isolatedNoteID] {
-                HStack(spacing: 7) {
-                    Image(systemName: "square.3.layers.3d.top.filled")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color(white: 0.30))
-                    Text(note.title)
-                        .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Color(white: 0.12))
-                    Text("· ESC to go up")
-                        .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color(white: 0.48))
-                }
-                .padding(.horizontal, 13)
-                .padding(.vertical, 7)
-                .background(Color.white.opacity(0.92))
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
+            if let currentIsolated = activeIsolatedNoteID ?? isolatedNoteID {
+                CanvasBreadcrumbBar(
+                    crumbs: buildBreadcrumbs(for: currentIsolated),
+                    onNavigate: { targetID in
+                        pendingBackgroundAction?.cancel()
+                        pendingBackgroundAction = nil
+                        backgroundTapCount = 0
+                        contextualNoteID = nil
+                        quickCreateDraft = nil
+                        pendingEscapeParentID = nil
+                        focusReturnContextID = nil
+                        activeIsolatedNoteID = targetID
+                        onIsolateNode(targetID)
+                    }
+                )
                 .position(x: size.width / 2, y: 26)
-                .transition(.opacity.combined(with: .scale(scale: 0.95)))
+                .transition(.opacity.combined(with: .scale(scale: 0.95, anchor: .top)))
             }
 
             if let quickCreateDraft {
@@ -474,7 +504,7 @@ struct GraphCanvasView: View {
     private func backgroundTapGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { value in
-                guard !isSpacePressed && !isRightMousePanning else { return }
+                guard !isSpacePressed else { return }
                 let distance = hypot(value.translation.width, value.translation.height)
                 guard distance > Self.backgroundTapThreshold else { return }
                 if !isPanningCanvas {
@@ -506,13 +536,20 @@ struct GraphCanvasView: View {
         tapSequenceNoteID = nil
         tapCount = 0
 
+        // Immediate dismissals — no double-tap detection needed for these.
         if selectedLink != nil {
             selectedLink = nil
+            pendingBackgroundAction?.cancel()
+            pendingBackgroundAction = nil
+            backgroundTapCount = 0
             return
         }
 
         if linkingSourceNoteID != nil {
             linkingSourceNoteID = nil
+            pendingBackgroundAction?.cancel()
+            pendingBackgroundAction = nil
+            backgroundTapCount = 0
             return
         }
 
@@ -521,33 +558,61 @@ struct GraphCanvasView: View {
             let distanceToBubble = hypot(location.x - bubblePoint.x, location.y - bubblePoint.y)
             if distanceToBubble > 120 {
                 self.quickCreateDraft = nil
+                pendingBackgroundAction?.cancel()
+                pendingBackgroundAction = nil
+                backgroundTapCount = 0
             }
             return
         }
 
-        if isolatedNoteID != nil || activeIsolatedNoteID != nil {
-            let focusParentID = isolatedNoteID ?? activeIsolatedNoteID
-            quickCreateDraft = QuickCreateDraft(
-                title: "",
-                graphPoint: graphPoint(from: location, in: size),
-                connectToID: nil,
-                focusParentID: focusParentID
-            )
-            return
-        }
+        // Double-tap detection: single → create node, double → navigate backwards.
+        let now = Date()
+        let isDoubleTap = backgroundTapCount >= 1
+            && now.timeIntervalSince(lastBackgroundTapTime) <= Self.doubleTapThreshold
 
-        if contextualNoteID != nil {
-            contextualNoteID = nil
-            return
-        }
+        lastBackgroundTapTime = now
 
-        // Root canvas tap — quick-create a new note at this position
-        quickCreateDraft = QuickCreateDraft(
-            title: "",
-            graphPoint: graphPoint(from: location, in: size),
-            connectToID: nil,
-            focusParentID: nil
-        )
+        if isDoubleTap {
+            backgroundTapCount = 0
+            pendingBackgroundAction?.cancel()
+            pendingBackgroundAction = nil
+            // Navigate backwards — same semantics as pressing ESC.
+            if let currentIsolated = activeIsolatedNoteID {
+                activeIsolatedNoteID = nil
+                focusReturnContextID = nil
+                pendingEscapeParentID = nil
+                contextualNoteID = nil
+                quickCreateDraft = nil
+                if let parentID = resolveFocusParentID(currentIsolated) {
+                    activeIsolatedNoteID = parentID
+                    onIsolateNode(parentID)
+                } else {
+                    onIsolateNode(nil)
+                }
+            } else if contextualNoteID != nil {
+                contextualNoteID = nil
+                pendingEscapeParentID = nil
+                focusReturnContextID = nil
+            }
+        } else {
+            // Single tap — schedule node creation after double-tap window expires.
+            backgroundTapCount = 1
+            pendingBackgroundAction?.cancel()
+            let graphPos = graphPoint(from: location, in: size)
+            let focusParent = isolatedNoteID ?? activeIsolatedNoteID
+            let action = DispatchWorkItem {
+                pendingBackgroundAction = nil
+                backgroundTapCount = 0
+                quickCreateDraft = QuickCreateDraft(
+                    title: "",
+                    graphPoint: graphPos,
+                    connectToID: nil,
+                    focusParentID: focusParent
+                )
+            }
+            pendingBackgroundAction = action
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.doubleTapThreshold, execute: action)
+        }
     }
 
     private func point(for note: Note, in size: CGSize) -> CGPoint {
@@ -589,7 +654,7 @@ struct GraphCanvasView: View {
     private func interactionGesture(for noteID: Int64) -> some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                if isSpacePressed || isRightMousePanning {
+                if isSpacePressed {
                     return
                 }
 
@@ -616,7 +681,7 @@ struct GraphCanvasView: View {
                 }
             }
             .onEnded { value in
-                if isSpacePressed || isRightMousePanning {
+                if isSpacePressed {
                     return
                 }
 
@@ -733,7 +798,8 @@ struct GraphCanvasView: View {
         tapCount += 1
         lastTapTime = now
 
-        if tapCount >= 3 {
+        if tapCount >= 2 {
+            // Double (or more) click — navigate forward into this node.
             pendingDoubleAction?.cancel()
             pendingDoubleAction = nil
             tapCount = 0
@@ -745,18 +811,6 @@ struct GraphCanvasView: View {
             centerNode(note)
             onIsolateNode(note.id)
             return
-        }
-
-        if tapCount == 2 {
-            pendingDoubleAction?.cancel()
-            let action = DispatchWorkItem {
-                onDoubleSelect(note)
-                tapCount = 0
-                tapSequenceNoteID = nil
-                pendingDoubleAction = nil
-            }
-            pendingDoubleAction = action
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.doubleTapThreshold, execute: action)
         }
     }
 
@@ -905,6 +959,11 @@ struct GraphCanvasView: View {
                     return nil
                 }
                 if event.keyCode == 53 {
+                    // Editor takes priority: if an editor is open, close it and consume the event.
+                    if let onEscapeEditor, onEscapeEditor() {
+                        return nil
+                    }
+
                     let shouldHandleEscape =
                         quickCreateDraft != nil
                         || activeIsolatedNoteID != nil
@@ -990,45 +1049,11 @@ struct GraphCanvasView: View {
         }
 
         if rightMouseMonitor == nil {
-            rightMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: [.rightMouseDown, .rightMouseDragged, .rightMouseUp]) { event in
-                guard allowsRightMousePan else {
-                    return event
-                }
-                guard isHoveringCanvas else {
-                    return event
-                }
-                guard !isTextInputFocused() else {
-                    return event
-                }
-
-                switch event.type {
-                case .rightMouseDown:
-                    isRightMousePanning = true
-                    rightMouseStartLocation = event.locationInWindow
-                    rightMousePanOrigin = panOffset
-                    return nil
-                case .rightMouseDragged:
-                    guard isRightMousePanning, let start = rightMouseStartLocation else {
-                        return nil
-                    }
-
-                    let current = event.locationInWindow
-                    panOffset = CGSize(
-                        width: rightMousePanOrigin.width + (current.x - start.x),
-                        height: rightMousePanOrigin.height + (current.y - start.y)
-                    )
-                    return nil
-                case .rightMouseUp:
-                    guard isRightMousePanning else {
-                        return event
-                    }
-                    panStart = panOffset
-                    isRightMousePanning = false
-                    rightMouseStartLocation = nil
-                    return nil
-                default:
-                    return event
-                }
+            // Capture the right-click position so context menus can create nodes near the cursor.
+            rightMouseMonitor = NSEvent.addLocalMonitorForEvents(matching: .rightMouseDown) { event in
+                guard isHoveringCanvas else { return event }
+                lastRightClickWindowPoint = event.locationInWindow
+                return event  // pass through so SwiftUI context menus can fire
             }
         }
     }
@@ -1056,8 +1081,6 @@ struct GraphCanvasView: View {
 
         isSpacePressed = false
         isPanningCanvas = false
-        isRightMousePanning = false
-        rightMouseStartLocation = nil
     }
 
     private func shouldCaptureSpaceKey(_ event: NSEvent) -> Bool {
@@ -1083,10 +1106,90 @@ struct GraphCanvasView: View {
         event.keyCode == 51 || event.keyCode == 117
     }
 
+    /// Converts a right-click window position (AppKit bottom-left origin) to a graph coordinate.
+    /// Uses an approximate canvas offset since we don't have the exact canvas frame.
+    private func approximateGraphPoint(from windowPoint: CGPoint, in size: CGSize) -> CGPoint {
+        let contentHeight = NSApp.keyWindow?.contentView?.frame.height ?? size.height
+        // Flip AppKit Y to SwiftUI Y, then subtract approximate toolbar height (24 padding + ~38 toolbar + 14 gap)
+        let canvasX = windowPoint.x - 24
+        let canvasY = (contentHeight - windowPoint.y) - 76
+        return graphPoint(from: CGPoint(x: canvasX, y: canvasY), in: size)
+    }
+
     private func normalizeEdge(_ a: Int64, _ b: Int64) -> (Int64, Int64) {
         a < b ? (a, b) : (b, a)
     }
+
+    /// Builds the ancestry chain from the root ancestor down to `noteID`.
+    private func buildBreadcrumbs(for noteID: Int64) -> [Note] {
+        guard let note = noteMap[noteID] else { return [] }
+        var path: [Note] = [note]
+        var current = note
+        while let parentID = current.parentId, let parent = noteMap[parentID] {
+            path.insert(parent, at: 0)
+            current = parent
+        }
+        return path
+    }
 }
+
+// MARK: – Breadcrumb bar
+
+private struct CanvasBreadcrumbBar: View {
+    /// Ordered from oldest ancestor to current node.
+    let crumbs: [Note]
+    /// Called with nil to navigate to root, or a note ID to focus that level.
+    let onNavigate: (Int64?) -> Void
+
+    var body: some View {
+        HStack(spacing: 5) {
+            // Home / root button
+            Button { onNavigate(nil) } label: {
+                Image(systemName: "house.fill")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(crumbs.isEmpty ? Color(white: 0.12) : Color(white: 0.45))
+            }
+            .buttonStyle(.plain)
+            .help("Go to root")
+
+            ForEach(Array(crumbs.enumerated()), id: \.element.id) { idx, crumb in
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 8, weight: .bold))
+                    .foregroundStyle(Color(white: 0.55))
+
+                let isLast = idx == crumbs.count - 1
+
+                if isLast {
+                    Text(crumb.title)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(Color(white: 0.10))
+                        .lineLimit(1)
+                        .fixedSize()
+                } else {
+                    Button {
+                        onNavigate(crumb.id)
+                    } label: {
+                        Text(crumb.title)
+                            .font(.system(size: 12, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(white: 0.38))
+                            .lineLimit(1)
+                            .fixedSize()
+                    }
+                    .buttonStyle(.plain)
+                    .help("Go to \(crumb.title)")
+                }
+            }
+        }
+        .padding(.horizontal, 13)
+        .padding(.vertical, 7)
+        .background(.ultraThinMaterial)
+        .clipShape(Capsule())
+        .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+        .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
+    }
+}
+
+// MARK: – Edge hit area
 
 private struct EdgeHitArea: Shape {
     let start: CGPoint

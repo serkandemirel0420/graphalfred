@@ -9,13 +9,11 @@ final class GlobalHotKeyManager {
     private var eventHandlerRef: EventHandlerRef?
     private var callback: (() -> Void)?
 
-    func start(shortcut: GlobalSearchHotKey, onPress: @escaping () -> Void) {
+    func start(config: HotKeyConfig, onPress: @escaping () -> Void) {
         callback = onPress
         stop()
 
-        guard let configuration = hotKeyConfiguration(for: shortcut) else {
-            return
-        }
+        guard !config.disabled, config.keyCode != 0 else { return }
 
         var eventType = EventTypeSpec(
             eventClass: OSType(kEventClassKeyboard),
@@ -33,36 +31,19 @@ final class GlobalHotKeyManager {
             &eventHandlerRef
         )
 
-        guard installStatus == noErr else {
-            return
-        }
+        guard installStatus == noErr else { return }
 
         let hotKeyID = EventHotKeyID(signature: Self.signature, id: Self.hotKeyID)
         let registerStatus = RegisterEventHotKey(
-            configuration.keyCode,
-            configuration.modifierFlags,
+            config.keyCode,
+            config.modifiers,
             hotKeyID,
             GetEventDispatcherTarget(),
             0,
             &hotKeyRef
         )
 
-        if registerStatus != noErr {
-            stop()
-        }
-    }
-
-    private func hotKeyConfiguration(for shortcut: GlobalSearchHotKey) -> (keyCode: UInt32, modifierFlags: UInt32)? {
-        switch shortcut {
-        case .optionSpace:
-            return (UInt32(kVK_Space), UInt32(optionKey))
-        case .commandOptionSpace:
-            return (UInt32(kVK_Space), UInt32(optionKey | cmdKey))
-        case .controlOptionSpace:
-            return (UInt32(kVK_Space), UInt32(optionKey | controlKey))
-        case .disabled:
-            return nil
-        }
+        if registerStatus != noErr { stop() }
     }
 
     func stop() {

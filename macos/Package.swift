@@ -3,7 +3,7 @@ import PackageDescription
 
 let package = Package(
     name: "GraphAlfred",
-    platforms: [.macOS(.v13)],
+    platforms: [.macOS(.v14)],
     products: [
         .executable(name: "GraphAlfred", targets: ["GraphAlfredApp"])
     ],

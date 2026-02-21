@@ -4,6 +4,7 @@ import AppKit
 @main
 struct GraphAlfredApp: App {
     @StateObject private var viewModel = GraphViewModel()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         WindowGroup {
@@ -28,7 +29,7 @@ struct GraphAlfredApp: App {
 
             CommandGroup(replacing: .appSettings) {
                 Button("Settings...") {
-                    viewModel.showSettings()
+                    openWindow(id: "settings")
                 }
                 .keyboardShortcut(",", modifiers: .command)
             }
@@ -50,11 +51,17 @@ struct GraphAlfredApp: App {
                 Button("Quick Search (Window)") {
                     viewModel.showSearch()
                 }
-                .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: [.command])
+                .keyboardShortcut(viewModel.settings.inAppSearchKey.asKeyEquivalent, modifiers: [.command])
 
-                Button("Global Hotkey: \(viewModel.settings.globalSearchHotKey.title)") {}
+                Button("Global Hotkey: \(viewModel.settings.globalHotKeyConfig.displayString)") {}
                     .disabled(true)
             }
         }
+
+        Window("Settings", id: "settings") {
+            SettingsWindowView()
+                .environmentObject(viewModel)
+        }
+        .defaultSize(width: 760, height: 520)
     }
 }

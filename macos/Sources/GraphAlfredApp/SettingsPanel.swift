@@ -1,9 +1,11 @@
+import AppKit
 import SwiftUI
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
     case appearance
     case shortcuts
     case canvas
+    case editor
 
     var id: String { rawValue }
 
@@ -12,6 +14,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         case .shortcuts: return "Shortcuts"
         case .canvas: return "Canvas"
+        case .editor: return "Editor"
         }
     }
 
@@ -20,6 +23,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .appearance: return "paintpalette"
         case .shortcuts: return "keyboard"
         case .canvas: return "cursorarrow.rays"
+        case .editor: return "doc.text"
         }
     }
 }
@@ -35,13 +39,8 @@ struct SettingsPanel: View {
             Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
             contentArea
         }
-        .frame(width: 720, height: 480)
+        .frame(minWidth: 680, minHeight: 460)
         .background(Color(red: 0.97, green: 0.97, blue: 0.98))
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .stroke(Color.black.opacity(0.08), lineWidth: 1)
-        )
     }
 
     // MARK: – Sidebar
@@ -92,6 +91,7 @@ struct SettingsPanel: View {
                         case .appearance: appearanceContent
                         case .shortcuts: shortcutsContent
                         case .canvas: canvasContent
+                        case .editor: editorContent
                         }
                     }
                     .padding(28)
@@ -138,38 +138,64 @@ struct SettingsPanel: View {
 
     private var shortcutsContent: some View {
         VStack(alignment: .leading, spacing: 22) {
-            sectionLabel("Keyboard Shortcuts", detail: "Customize how you open search across the system and within the app.")
+            sectionLabel("Keyboard Shortcuts", detail: "Customize how you open search. Click \"Record\" and press the key combo you want.")
 
             settingsCard {
-                pickerRow(
-                    label: "Global Search",
-                    detail: "Opens search from anywhere on your Mac",
-                    picker: {
-                        Picker("", selection: $settings.globalSearchHotKey) {
-                            ForEach(GlobalSearchHotKey.allCases) { shortcut in
-                                Text(shortcut.title).tag(shortcut)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(minWidth: 200)
+                // Global search hotkey recorder
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Global Search")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(white: 0.12))
+                        Text("Opens search from anywhere on your Mac")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(white: 0.52))
                     }
-                )
+                    Spacer()
+                    HotKeyRecorderView(config: $settings.globalHotKeyConfig)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
 
                 rowDivider()
 
-                pickerRow(
-                    label: "In-App Search",
-                    detail: "Opens search while GraphAlfred is the active window",
-                    picker: {
-                        Picker("", selection: $settings.inAppSearchShortcut) {
-                            ForEach(InAppSearchShortcut.allCases) { shortcut in
-                                Text(shortcut.title).tag(shortcut)
-                            }
-                        }
-                        .pickerStyle(.menu)
-                        .frame(minWidth: 200)
+                // In-app search key
+                HStack(alignment: .center, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("In-App Search")
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(white: 0.12))
+                        Text("⌘ + your key while GraphAlfred is active")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(white: 0.52))
                     }
-                )
+                    Spacer()
+                    HStack(spacing: 6) {
+                        Text("⌘ +")
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(white: 0.40))
+                        TextField("", text: Binding(
+                            get: { settings.inAppSearchKey },
+                            set: { new in
+                                let filtered = new.filter { $0.isLetter || $0.isNumber }
+                                if let ch = filtered.last {
+                                    settings.inAppSearchKey = String(ch).lowercased()
+                                }
+                            }
+                        ))
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 14, weight: .bold, design: .monospaced))
+                        .foregroundStyle(Color(white: 0.12))
+                        .frame(width: 28, height: 28)
+                        .multilineTextAlignment(.center)
+                        .background(Color.white.opacity(0.80))
+                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .stroke(Color.black.opacity(0.12), lineWidth: 1))
+                    }
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 14)
             }
         }
     }
@@ -193,6 +219,22 @@ struct SettingsPanel: View {
                     label: "Drag-drop creates connections",
                     detail: "Dragging a node close to another automatically links them",
                     isOn: $settings.dragToConnectEnabled
+                )
+            }
+        }
+    }
+
+    // MARK: – Editor
+
+    private var editorContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("Editor Behavior", detail: "Choose how the note editor opens when you edit a node.")
+
+            settingsCard {
+                toggleRow(
+                    label: "Open editor as modal",
+                    detail: "Editor expands as a full-screen overlay instead of a side panel",
+                    isOn: $settings.editorOpensAsModal
                 )
             }
         }
@@ -273,6 +315,23 @@ struct SettingsPanel: View {
             .fill(Color.black.opacity(0.06))
             .frame(height: 1)
             .padding(.horizontal, 16)
+    }
+}
+
+// MARK: – Window wrapper (used by the Window scene)
+
+struct SettingsWindowView: View {
+    @EnvironmentObject private var viewModel: GraphViewModel
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        SettingsPanel(
+            settings: Binding(
+                get: { viewModel.settings },
+                set: { viewModel.applySettings($0) }
+            ),
+            onClose: { dismiss() }
+        )
     }
 }
 
@@ -367,5 +426,120 @@ private struct ThemeCard: View {
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity)
+    }
+}
+
+// MARK: – Hot-key recorder
+
+private struct HotKeyRecorderView: View {
+    @Binding var config: HotKeyConfig
+    @State private var isRecording = false
+    @State private var eventMonitor: Any?
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Text(isRecording ? "Press any key…" : (config.disabled ? "Disabled" : config.displayString))
+                .font(isRecording
+                      ? .system(size: 12, weight: .regular, design: .rounded)
+                      : .system(size: 13, weight: .bold, design: .monospaced))
+                .foregroundStyle(
+                    isRecording
+                        ? Color(white: 0.45)
+                        : (config.disabled ? Color(white: 0.55) : Color(white: 0.12))
+                )
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(minWidth: 100, alignment: .center)
+                .background(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .fill(isRecording ? Color.blue.opacity(0.05) : Color.black.opacity(0.04))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .stroke(
+                            isRecording ? Color.blue.opacity(0.35) : Color.black.opacity(0.10),
+                            lineWidth: 1
+                        )
+                )
+
+            Button(isRecording ? "Cancel" : "Record") {
+                if isRecording { stopRecording() } else { startRecording() }
+            }
+            .buttonStyle(GraphSecondaryButtonStyle())
+
+            if !config.disabled && !isRecording {
+                Button("Disable") {
+                    config = .off
+                }
+                .buttonStyle(GraphSecondaryButtonStyle())
+            }
+        }
+        .onDisappear { stopRecording() }
+    }
+
+    private func startRecording() {
+        isRecording = true
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            guard isRecording else { return event }
+
+            // ESC cancels recording without changing config.
+            if event.keyCode == 53 {
+                stopRecording()
+                return nil
+            }
+
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            // Require at least one modifier so bare keys don't accidentally bind.
+            guard flags.contains(.option) || flags.contains(.command) || flags.contains(.control) else {
+                return nil
+            }
+
+            let keyCode = UInt32(event.keyCode)
+            var carbonMods: UInt32 = 0
+            if flags.contains(.option)  { carbonMods |= 2048 }
+            if flags.contains(.command) { carbonMods |= 256  }
+            if flags.contains(.control) { carbonMods |= 4096 }
+            if flags.contains(.shift)   { carbonMods |= 512  }
+
+            var display = ""
+            if flags.contains(.control) { display += "⌃" }
+            if flags.contains(.option)  { display += "⌥" }
+            if flags.contains(.shift)   { display += "⇧" }
+            if flags.contains(.command) { display += "⌘" }
+            display += hotkeyKeyName(for: event.keyCode, characters: event.charactersIgnoringModifiers)
+
+            config = HotKeyConfig(keyCode: keyCode, modifiers: carbonMods, displayString: display, disabled: false)
+            stopRecording()
+            return nil
+        }
+    }
+
+    private func stopRecording() {
+        isRecording = false
+        if let monitor = eventMonitor {
+            NSEvent.removeMonitor(monitor)
+            eventMonitor = nil
+        }
+    }
+
+    private func hotkeyKeyName(for keyCode: UInt16, characters: String?) -> String {
+        switch keyCode {
+        case 49:  return "Space"
+        case 36:  return "↩"
+        case 48:  return "⇥"
+        case 51:  return "⌫"
+        case 117: return "⌦"
+        case 53:  return "Esc"
+        case 123: return "←"
+        case 124: return "→"
+        case 125: return "↓"
+        case 126: return "↑"
+        case 115: return "Home"
+        case 119: return "End"
+        case 116: return "PgUp"
+        case 121: return "PgDn"
+        default:
+            return characters?.uppercased().first.map(String.init) ?? "?"
+        }
     }
 }

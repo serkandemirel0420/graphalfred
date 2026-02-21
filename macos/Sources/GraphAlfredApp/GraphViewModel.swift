@@ -439,9 +439,13 @@ final class GraphViewModel: ObservableObject {
     }
 
     func jumpToSearchResult(_ note: Note) {
+        isSearchVisible = false
+        searchText = ""
+        searchResults = []
+        // Navigate to the note's layer: isolate parent so the note is visible
+        isolatedNoteId = note.parentId  // nil for root notes, parentId for children
         highlightedNoteId = note.id
         selectedNote = note
-        isSearchVisible = false
     }
 
     func updateDraftRelation(noteID: Int64, enabled: Bool) {

@@ -1,20 +1,25 @@
 import SwiftUI
 
 private enum SettingsSection: String, CaseIterable, Identifiable {
-    case theme
-    case hotkeys
+    case appearance
+    case shortcuts
     case canvas
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
-        case .theme:
-            return "Theme"
-        case .hotkeys:
-            return "Hotkeys"
-        case .canvas:
-            return "Canvas"
+        case .appearance: return "Appearance"
+        case .shortcuts: return "Shortcuts"
+        case .canvas: return "Canvas"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .appearance: return "paintpalette"
+        case .shortcuts: return "keyboard"
+        case .canvas: return "cursorarrow.rays"
         }
     }
 }
@@ -22,157 +27,356 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
 struct SettingsPanel: View {
     @Binding var settings: AppSettings
     let onClose: () -> Void
-    @State private var selectedSection: SettingsSection = .theme
+    @State private var selectedSection: SettingsSection = .appearance
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                Text("Settings")
-                    .font(.system(size: 26, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Spacer()
-
-                Button {
-                    onClose()
-                } label: {
-                    Image(systemName: "xmark")
-                }
-                .buttonStyle(GraphSecondaryButtonStyle())
+        HStack(spacing: 0) {
+            sidebar
+            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            contentArea
+        }
+        .frame(width: 720, height: 480)
+        .background(
+            ZStack {
+                Color(red: 0.07, green: 0.07, blue: 0.09)
+                LinearGradient(
+                    colors: [Color.white.opacity(0.03), Color.clear],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
             }
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+        )
+    }
 
-            HStack {
-                Text("Category")
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.82))
+    // MARK: – Sidebar
 
-                Picker("Category", selection: $selectedSection) {
-                    ForEach(SettingsSection.allCases) { section in
-                        Text(section.title).tag(section)
+    private var sidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("SETTINGS")
+                .font(.system(size: 9.5, weight: .heavy, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.3))
+                .tracking(1.4)
+                .padding(.bottom, 12)
+
+            ForEach(SettingsSection.allCases) { section in
+                SidebarTabRow(
+                    label: section.title,
+                    icon: section.icon,
+                    isSelected: selectedSection == section
+                ) {
+                    withAnimation(.easeInOut(duration: 0.13)) {
+                        selectedSection = section
                     }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .frame(width: 180, alignment: .leading)
-            }
-
-            Group {
-                switch selectedSection {
-                case .theme:
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text("Application Theme")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Text("Applies immediately to the main window and graph canvas.")
-                            .font(.system(size: 12, weight: .regular, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.64))
-                    }
-                    .padding(.bottom, 2)
-
-                    Picker("Theme", selection: $settings.theme) {
-                        ForEach(AppTheme.allCases) { theme in
-                            Text(theme.title).tag(theme)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(
-                            LinearGradient(
-                                colors: [settings.theme.palette.appBackgroundTop, settings.theme.palette.appBackgroundBottom],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(0.2), lineWidth: 1)
-                        )
-                        .frame(height: 90)
-                        .overlay(
-                            Text(settings.theme.title)
-                                .font(.system(size: 14, weight: .bold, design: .rounded))
-                                .foregroundStyle(.white.opacity(0.92))
-                        )
-
-                case .hotkeys:
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Global Search Hotkey")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Picker("Global Search Hotkey", selection: $settings.globalSearchHotKey) {
-                            ForEach(GlobalSearchHotKey.allCases) { shortcut in
-                                Text(shortcut.title).tag(shortcut)
-                            }
-                        }
-                        .pickerStyle(.menu)
-
-                        Divider()
-                            .overlay(Color.white.opacity(0.15))
-                            .padding(.vertical, 2)
-
-                        Text("In-App Search Shortcut")
-                            .font(.system(size: 15, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
-                        Picker("In-App Search Shortcut", selection: $settings.inAppSearchShortcut) {
-                            ForEach(InAppSearchShortcut.allCases) { shortcut in
-                                Text(shortcut.title).tag(shortcut)
-                            }
-                        }
-                        .pickerStyle(.segmented)
-
-                        Text("The in-app shortcut opens search while GraphAlfred is focused.")
-                            .font(.system(size: 12, weight: .regular, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.64))
-                    }
-
-                case .canvas:
-                    VStack(alignment: .leading, spacing: 12) {
-                        Toggle(isOn: $settings.rightClickPanEnabled) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Right-click drag pans canvas")
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white)
-                                Text("Use right mouse drag as an alternative to holding Space.")
-                                    .font(.system(size: 12, weight: .regular, design: .rounded))
-                                    .foregroundStyle(Color.white.opacity(0.64))
-                            }
-                        }
-
-                        Toggle(isOn: $settings.dragToConnectEnabled) {
-                            VStack(alignment: .leading, spacing: 3) {
-                                Text("Drag-drop creates connections")
-                                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(.white)
-                                Text("Disable if node dragging feels cluttered.")
-                                    .font(.system(size: 12, weight: .regular, design: .rounded))
-                                    .foregroundStyle(Color.white.opacity(0.64))
-                            }
-                        }
-                    }
-                    .toggleStyle(.switch)
                 }
             }
 
             Spacer()
 
-            HStack {
-                Spacer()
-                Button("Done") {
-                    onClose()
-                }
+            Button("Done") { onClose() }
                 .buttonStyle(GraphPrimaryButtonStyle())
+                .frame(maxWidth: .infinity)
                 .keyboardShortcut(.defaultAction)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 20)
+        .frame(width: 185)
+        .background(Color.black.opacity(0.22))
+    }
+
+    // MARK: – Content area
+
+    private var contentArea: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            contentHeader
+            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Group {
+                        switch selectedSection {
+                        case .appearance: appearanceContent
+                        case .shortcuts: shortcutsContent
+                        case .canvas: canvasContent
+                        }
+                    }
+                    .padding(28)
+                }
             }
         }
-        .padding(20)
-        .frame(width: 520, height: 360)
-        .background(
-            LinearGradient(
-                colors: [Color.black.opacity(0.96), Color(red: 0.11, green: 0.11, blue: 0.13)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
+    }
+
+    private var contentHeader: some View {
+        HStack(spacing: 10) {
+            Image(systemName: selectedSection.icon)
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Color.white.opacity(0.6))
+            Text(selectedSection.title)
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Spacer()
+            Button { onClose() } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(GraphSecondaryButtonStyle())
+        }
+        .padding(.horizontal, 24)
+        .padding(.vertical, 16)
+    }
+
+    // MARK: – Appearance
+
+    private var appearanceContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("Color Theme", detail: "Applies to the entire app immediately.")
+
+            HStack(spacing: 14) {
+                ForEach(AppTheme.allCases) { theme in
+                    ThemeCard(theme: theme, isSelected: settings.theme == theme) {
+                        settings.theme = theme
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: – Shortcuts
+
+    private var shortcutsContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("Keyboard Shortcuts", detail: "Customize how you open search across the system and within the app.")
+
+            settingsCard {
+                pickerRow(
+                    label: "Global Search",
+                    detail: "Opens search from anywhere on your Mac",
+                    picker: {
+                        Picker("", selection: $settings.globalSearchHotKey) {
+                            ForEach(GlobalSearchHotKey.allCases) { shortcut in
+                                Text(shortcut.title).tag(shortcut)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(minWidth: 200)
+                    }
+                )
+
+                rowDivider()
+
+                pickerRow(
+                    label: "In-App Search",
+                    detail: "Opens search while GraphAlfred is the active window",
+                    picker: {
+                        Picker("", selection: $settings.inAppSearchShortcut) {
+                            ForEach(InAppSearchShortcut.allCases) { shortcut in
+                                Text(shortcut.title).tag(shortcut)
+                            }
+                        }
+                        .pickerStyle(.menu)
+                        .frame(minWidth: 200)
+                    }
+                )
+            }
+        }
+    }
+
+    // MARK: – Canvas
+
+    private var canvasContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("Canvas Behavior", detail: "Control how the graph canvas responds to mouse and gesture input.")
+
+            settingsCard {
+                toggleRow(
+                    label: "Right-click drag pans canvas",
+                    detail: "Use right-mouse drag as an alternative to Space + drag",
+                    isOn: $settings.rightClickPanEnabled
+                )
+
+                rowDivider()
+
+                toggleRow(
+                    label: "Drag-drop creates connections",
+                    detail: "Dragging a node close to another automatically links them",
+                    isOn: $settings.dragToConnectEnabled
+                )
+            }
+        }
+    }
+
+    // MARK: – Reusable row builders
+
+    @ViewBuilder
+    private func sectionLabel(_ title: String, detail: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.system(size: 13, weight: .bold, design: .rounded))
+                .foregroundStyle(.white)
+            Text(detail)
+                .font(.system(size: 12, weight: .regular, design: .rounded))
+                .foregroundStyle(Color.white.opacity(0.45))
+        }
+    }
+
+    @ViewBuilder
+    private func settingsCard<Content: View>(@ViewBuilder _ content: () -> Content) -> some View {
+        VStack(spacing: 0) {
+            content()
+        }
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .stroke(Color.white.opacity(0.09), lineWidth: 1)
         )
+    }
+
+    @ViewBuilder
+    private func pickerRow<Content: View>(
+        label: String,
+        detail: String,
+        @ViewBuilder picker: () -> Content
+    ) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.45))
+            }
+            Spacer()
+            picker()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private func toggleRow(label: String, detail: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white)
+                Text(detail)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color.white.opacity(0.45))
+            }
+            Spacer()
+            Toggle("", isOn: isOn)
+                .toggleStyle(.switch)
+                .labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private func rowDivider() -> some View {
+        Rectangle()
+            .fill(Color.white.opacity(0.07))
+            .frame(height: 1)
+            .padding(.horizontal, 16)
+    }
+}
+
+// MARK: – Sidebar tab row
+
+private struct SidebarTabRow: View {
+    let label: String
+    let icon: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 9) {
+                Image(systemName: icon)
+                    .font(.system(size: 13, weight: .medium))
+                    .frame(width: 17, alignment: .center)
+                Text(label)
+                    .font(.system(size: 13, weight: .medium, design: .rounded))
+                Spacer()
+            }
+            .foregroundStyle(isSelected ? .white : Color.white.opacity(0.5))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(isSelected ? Color.white.opacity(0.10) : Color.clear)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .stroke(isSelected ? Color.white.opacity(0.12) : Color.clear, lineWidth: 1)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: – Theme card
+
+private struct ThemeCard: View {
+    let theme: AppTheme
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 10) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .fill(
+                            LinearGradient(
+                                colors: [theme.palette.canvasBackgroundTop, theme.palette.canvasBackgroundBottom],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+
+                    // Mini graph preview
+                    VStack(spacing: 0) {
+                        HStack(spacing: 18) {
+                            Circle()
+                                .fill(Color.white.opacity(0.22))
+                                .frame(width: 9, height: 9)
+                            Circle()
+                                .fill(Color.white.opacity(0.14))
+                                .frame(width: 7, height: 7)
+                            Circle()
+                                .fill(Color.white.opacity(0.18))
+                                .frame(width: 8, height: 8)
+                        }
+                    }
+                }
+                .frame(height: 86)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(
+                            isSelected ? Color.cyan.opacity(0.75) : Color.white.opacity(0.1),
+                            lineWidth: isSelected ? 2 : 1
+                        )
+                )
+
+                HStack(spacing: 5) {
+                    if isSelected {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(Color.cyan.opacity(0.9))
+                    }
+                    Text(theme.title)
+                        .font(.system(size: 12, weight: isSelected ? .bold : .semibold, design: .rounded))
+                        .foregroundStyle(isSelected ? .white : Color.white.opacity(0.62))
+                }
+                .frame(height: 16)
+            }
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
     }
 }

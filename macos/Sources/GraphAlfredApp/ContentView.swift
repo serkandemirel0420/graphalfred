@@ -4,6 +4,7 @@ struct ContentView: View {
     @EnvironmentObject private var viewModel: GraphViewModel
     @State private var hotKeyManager = GlobalHotKeyManager()
     @State private var isEditorExpanded = false
+    @State private var canvasControlCommand: CanvasControlCommandToken?
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -15,15 +16,6 @@ struct ContentView: View {
             .ignoresSafeArea()
 
             VStack(alignment: .leading, spacing: 18) {
-                Text("Graph")
-                    .font(.system(size: 34, weight: .heavy, design: .rounded))
-                    .foregroundStyle(.white)
-
-                Text("Visualize relationships between your notes, discover hidden links, and edit content directly in a graph.")
-                    .font(.system(size: 17, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.78))
-                    .frame(maxWidth: 940, alignment: .leading)
-
                 HStack(spacing: 12) {
                     Button("New Note") {
                         viewModel.createNote()
@@ -42,6 +34,25 @@ struct ContentView: View {
                     }
                     .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: .command)
                     .buttonStyle(GraphPrimaryButtonStyle())
+
+                    Button {
+                        canvasControlCommand = CanvasControlCommandToken(command: .zoomOut)
+                    } label: {
+                        Image(systemName: "minus.magnifyingglass")
+                    }
+                    .buttonStyle(GraphSecondaryButtonStyle())
+
+                    Button {
+                        canvasControlCommand = CanvasControlCommandToken(command: .zoomIn)
+                    } label: {
+                        Image(systemName: "plus.magnifyingglass")
+                    }
+                    .buttonStyle(GraphSecondaryButtonStyle())
+
+                    Button("Reset") {
+                        canvasControlCommand = CanvasControlCommandToken(command: .reset)
+                    }
+                    .buttonStyle(GraphSecondaryButtonStyle())
 
                     Spacer()
 
@@ -78,6 +89,11 @@ struct ContentView: View {
                     highlightedNoteID: viewModel.highlightedNoteId,
                     activeDragNoteID: viewModel.activeDragNoteId,
                     isolatedNoteID: viewModel.isolatedNoteId,
+                    focusCompanionNoteIDs: viewModel.focusCompanionIDs(for: viewModel.isolatedNoteId),
+                    resolveFocusParentID: { nodeID in
+                        viewModel.focusParentID(for: nodeID)
+                    },
+                    controlCommand: canvasControlCommand,
                     theme: viewModel.settings.theme,
                     allowsRightMousePan: viewModel.settings.rightClickPanEnabled,
                     allowsDragToConnect: viewModel.settings.dragToConnectEnabled,
@@ -99,8 +115,13 @@ struct ContentView: View {
                     onDeleteLink: { sourceID, targetID in
                         viewModel.deleteLink(sourceID: sourceID, targetID: targetID)
                     },
-                    onQuickCreate: { title, x, y, connectTo in
-                        viewModel.quickCreateNote(title: title, x: x, y: y, connectTo: connectTo)
+                    onDeleteNote: { noteID in
+                        Task {
+                            await viewModel.deleteNote(id: noteID)
+                        }
+                    },
+                    onQuickCreate: { title, x, y, connectTo, focusParentID in
+                        viewModel.quickCreateNote(title: title, x: x, y: y, connectTo: connectTo, focusParentID: focusParentID)
                     },
                     onDragStateChange: { noteID in
                         viewModel.setActiveDragNote(id: noteID)
@@ -194,7 +215,7 @@ struct ContentView: View {
         if viewModel.editingDraft != nil {
             NoteEditorPanel(
                 draft: draftBinding,
-                allNotes: viewModel.graph.notes,
+                allNotes: viewModel.relationCandidates(for: viewModel.editingDraft),
                 isExpanded: false,
                 onToggleExpand: {
                     isEditorExpanded = true
@@ -245,6 +266,7 @@ struct ContentView: View {
                 content: "",
                 x: 0,
                 y: 0,
+                parentId: nil,
                 relatedIds: []
             )
         } set: { draft in
@@ -298,7 +320,7 @@ struct ContentView: View {
 
                 NoteEditorPanel(
                     draft: draftBinding,
-                    allNotes: viewModel.graph.notes,
+                    allNotes: viewModel.relationCandidates(for: viewModel.editingDraft),
                     isExpanded: true,
                     onToggleExpand: {
                         isEditorExpanded = false

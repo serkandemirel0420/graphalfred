@@ -1,12 +1,31 @@
 import AppKit
 import SwiftUI
 
+enum CanvasControlCommand: Equatable {
+    case zoomOut
+    case zoomIn
+    case reset
+}
+
+struct CanvasControlCommandToken: Equatable {
+    let id: UUID
+    let command: CanvasControlCommand
+
+    init(command: CanvasControlCommand) {
+        self.id = UUID()
+        self.command = command
+    }
+}
+
 struct GraphCanvasView: View {
     let notes: [Note]
     let links: [Link]
     let highlightedNoteID: Int64?
     let activeDragNoteID: Int64?
     let isolatedNoteID: Int64?
+    let focusCompanionNoteIDs: Set<Int64>
+    let resolveFocusParentID: (Int64) -> Int64?
+    let controlCommand: CanvasControlCommandToken?
     let theme: AppTheme
     let allowsRightMousePan: Bool
     let allowsDragToConnect: Bool
@@ -16,7 +35,8 @@ struct GraphCanvasView: View {
     let onDragEnd: (Int64, Double, Double) -> Void
     let onConnect: (Int64, Int64) -> Void
     let onDeleteLink: (Int64, Int64) -> Void
-    let onQuickCreate: (String, Double, Double, Int64?) -> Void
+    let onDeleteNote: (Int64) -> Void
+    let onQuickCreate: (String, Double, Double, Int64?, Int64?) -> Void
     let onDragStateChange: (Int64?) -> Void
 
     @State private var dragOrigins: [Int64: CGPoint] = [:]
@@ -45,8 +65,15 @@ struct GraphCanvasView: View {
     @State private var isRightMousePanning = false
     @State private var rightMouseStartLocation: CGPoint?
     @State private var rightMousePanOrigin: CGSize = .zero
+    @State private var lastEscapePressTime: Date = .distantPast
+    @State private var pendingEscapeParentID: Int64?
+    @State private var focusReturnContextID: Int64?
+    @State private var activeIsolatedNoteID: Int64?
+    @State private var liveHighlightedNoteID: Int64?
+    @State private var isHoveringBackground = false
 
     private static let doubleTapThreshold: TimeInterval = 0.28
+    private static let doubleEscapeThreshold: TimeInterval = 0.35
     private static let tapMovementThreshold: CGFloat = 6
     private static let backgroundTapThreshold: CGFloat = 6
     private static let dragStartThreshold: CGFloat = 3
@@ -55,10 +82,7 @@ struct GraphCanvasView: View {
 
     var body: some View {
         GeometryReader { geometry in
-            ZStack(alignment: .topTrailing) {
-                canvasLayer(in: geometry.size)
-                transformControls
-            }
+            canvasLayer(in: geometry.size)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(
                 LinearGradient(
@@ -76,10 +100,20 @@ struct GraphCanvasView: View {
             .simultaneousGesture(canvasMagnificationGesture)
             .onHover { isHoveringCanvas = $0 }
             .onAppear {
+                activeIsolatedNoteID = isolatedNoteID
+                liveHighlightedNoteID = highlightedNoteID
                 installEventMonitors()
             }
+            .onChange(of: highlightedNoteID) { liveHighlightedNoteID = $0 }
             .onChange(of: isolatedNoteID) { next in
+                activeIsolatedNoteID = next
                 if next != nil {
+                    if let next {
+                        // Fallback to the focused node itself so double-Esc can always return to
+                        // "node + direct connections" context even without an explicit parent map.
+                        focusReturnContextID = contextualNoteID ?? resolveFocusParentID(next) ?? next
+                    }
+                    pendingEscapeParentID = nil
                     contextualNoteID = nil
                     selectedLink = nil
                     linkingSourceNoteID = nil
@@ -96,6 +130,9 @@ struct GraphCanvasView: View {
                     }
                 }
             }
+            .onChange(of: controlCommand?.id) { _ in
+                applyControlCommand(controlCommand?.command)
+            }
             .onDisappear {
                 pendingDoubleAction?.cancel()
                 onDragStateChange(nil)
@@ -104,6 +141,9 @@ struct GraphCanvasView: View {
                 contextualNoteID = nil
                 linkingSourceNoteID = nil
                 quickCreateDraft = nil
+                focusReturnContextID = nil
+                pendingEscapeParentID = nil
+                activeIsolatedNoteID = nil
                 removeEventMonitors()
             }
         }
@@ -131,7 +171,10 @@ struct GraphCanvasView: View {
 
     private var visibleNotes: [Note] {
         if let isolatedNoteID, let isolated = noteMap[isolatedNoteID] {
-            return [isolated]
+            let companions = notes.filter { note in
+                note.id != isolatedNoteID && focusCompanionNoteIDs.contains(note.id)
+            }
+            return [isolated] + companions
         }
 
         if contextualNoteID != nil {
@@ -139,7 +182,7 @@ struct GraphCanvasView: View {
             return notes.filter { visibleIDs.contains($0.id) }
         }
 
-        return notes
+        return notes.filter { $0.parentId == nil }
     }
 
     private var visibleLinks: [Link] {
@@ -156,7 +199,8 @@ struct GraphCanvasView: View {
             }
         }
 
-        return links
+        let rootIDs = Set(notes.filter { $0.parentId == nil }.map(\.id))
+        return links.filter { rootIDs.contains($0.sourceId) && rootIDs.contains($0.targetId) }
     }
 
     @ViewBuilder
@@ -166,6 +210,25 @@ struct GraphCanvasView: View {
                 .fill(Color.clear)
                 .contentShape(Rectangle())
                 .gesture(backgroundTapGesture(in: size))
+
+                .onHover { hovering in
+                    isHoveringBackground = hovering
+                    if hovering {
+                        NSCursor.openHand.push()
+                    } else {
+                        NSCursor.pop()
+                    }
+                }
+                .onChange(of: isPanningCanvas) { panning in
+                    guard isHoveringBackground else { return }
+                    if panning {
+                        NSCursor.pop()
+                        NSCursor.closedHand.push()
+                    } else {
+                        NSCursor.pop()
+                        NSCursor.openHand.push()
+                    }
+                }
 
             Canvas { context, _ in
                 for link in visibleLinks {
@@ -219,6 +282,13 @@ struct GraphCanvasView: View {
                         isBeingDragged: isDragging
                     )
                     .gesture(interactionGesture(for: note.id))
+                    .onHover { hovering in
+                        if hovering {
+                            NSCursor.pointingHand.push()
+                        } else {
+                            NSCursor.pop()
+                        }
+                    }
 
                     if showsConnectHandle {
                         connectHandle(for: note.id, isActive: linkingSourceNoteID == note.id)
@@ -327,53 +397,6 @@ struct GraphCanvasView: View {
         }
     }
 
-    private var transformControls: some View {
-        VStack(alignment: .trailing, spacing: 8) {
-            HStack(spacing: 8) {
-                Button {
-                    zoomScale = clampedScale(zoomScale / 1.15)
-                } label: {
-                    Image(systemName: "minus.magnifyingglass")
-                }
-                .buttonStyle(GraphSecondaryButtonStyle())
-
-                Button {
-                    zoomScale = clampedScale(zoomScale * 1.15)
-                } label: {
-                    Image(systemName: "plus.magnifyingglass")
-                }
-                .buttonStyle(GraphSecondaryButtonStyle())
-
-                Button("Reset") {
-                    resetViewTransform()
-                }
-                .buttonStyle(GraphSecondaryButtonStyle())
-
-                if isolatedNoteID != nil {
-                    Button("Show All") {
-                        onIsolateNode(nil)
-                        contextualNoteID = nil
-                        selectedLink = nil
-                        quickCreateDraft = nil
-                    }
-                    .buttonStyle(GraphPrimaryButtonStyle())
-                }
-            }
-
-            Text("\(Int((zoomScale * 100).rounded()))%")
-                .font(.system(size: 11, weight: .semibold, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.78))
-        }
-        .padding(10)
-        .background(.ultraThinMaterial)
-        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.white.opacity(0.18), lineWidth: 1)
-        )
-        .padding(12)
-    }
-
     private var canvasPanGesture: some Gesture {
         DragGesture(minimumDistance: 4)
             .onChanged { value in
@@ -411,16 +434,29 @@ struct GraphCanvasView: View {
 
     private func backgroundTapGesture(in size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                guard !isSpacePressed && !isRightMousePanning else { return }
+                let distance = hypot(value.translation.width, value.translation.height)
+                guard distance > Self.backgroundTapThreshold else { return }
+                if !isPanningCanvas {
+                    isPanningCanvas = true
+                }
+                panOffset = CGSize(
+                    width: panStart.width + value.translation.width,
+                    height: panStart.height + value.translation.height
+                )
+            }
             .onEnded { value in
+                if isPanningCanvas {
+                    panStart = panOffset
+                    isPanningCanvas = false
+                    return
+                }
                 let distance = hypot(
                     value.location.x - value.startLocation.x,
                     value.location.y - value.startLocation.y
                 )
-
-                guard distance <= Self.backgroundTapThreshold else {
-                    return
-                }
-
+                guard distance <= Self.backgroundTapThreshold else { return }
                 handleBackgroundTap(at: value.location, in: size)
             }
     }
@@ -450,11 +486,13 @@ struct GraphCanvasView: View {
             return
         }
 
-        if let isolatedNoteID {
+        if isolatedNoteID != nil || activeIsolatedNoteID != nil {
+            let focusParentID = isolatedNoteID ?? activeIsolatedNoteID
             quickCreateDraft = QuickCreateDraft(
                 title: "",
                 graphPoint: graphPoint(from: location, in: size),
-                connectToID: isolatedNoteID
+                connectToID: nil,
+                focusParentID: focusParentID
             )
             return
         }
@@ -652,8 +690,9 @@ struct GraphCanvasView: View {
             pendingDoubleAction = nil
             tapCount = 0
             tapSequenceNoteID = nil
-            contextualNoteID = nil
             selectedLink = nil
+            activeIsolatedNoteID = note.id
+            focusReturnContextID = contextualNoteID ?? resolveFocusParentID(note.id) ?? note.id
             onSelect(note)
             centerNode(note)
             onIsolateNode(note.id)
@@ -675,6 +714,21 @@ struct GraphCanvasView: View {
 
     private func clampedScale(_ proposed: CGFloat) -> CGFloat {
         min(Self.maxZoom, max(Self.minZoom, proposed))
+    }
+
+    private func applyControlCommand(_ command: CanvasControlCommand?) {
+        guard let command else {
+            return
+        }
+
+        switch command {
+        case .zoomOut:
+            zoomScale = clampedScale(zoomScale / 1.15)
+        case .zoomIn:
+            zoomScale = clampedScale(zoomScale * 1.15)
+        case .reset:
+            resetViewTransform()
+        }
     }
 
     private func resetViewTransform() {
@@ -734,17 +788,22 @@ struct GraphCanvasView: View {
             return
         }
 
+        let focusParentID = quickCreateDraft.focusParentID ?? isolatedNoteID ?? activeIsolatedNoteID
+
         onQuickCreate(
             title,
             quickCreateDraft.graphPoint.x,
             quickCreateDraft.graphPoint.y,
-            quickCreateDraft.connectToID
+            quickCreateDraft.connectToID,
+            focusParentID
         )
 
-        if let parentID = quickCreateDraft.connectToID {
-            contextualNoteID = parentID
+        // Stay in focus mode after quick-create so repeated clicks keep creating nodes there.
+        if let focusParentID {
+            activeIsolatedNoteID = focusParentID
+            focusReturnContextID = focusParentID
+            onIsolateNode(focusParentID)
         }
-        onIsolateNode(nil)
         self.quickCreateDraft = nil
     }
 
@@ -758,25 +817,85 @@ struct GraphCanvasView: View {
                     }
                     return event
                 }
-                if isDeleteKey(event), let selectedLink {
-                    onDeleteLink(selectedLink.sourceID, selectedLink.targetID)
-                    self.selectedLink = nil
+                if isDeleteKey(event) {
+                    guard !isTextInputFocused() else {
+                        return event
+                    }
+
+                    if let selectedLink {
+                        onDeleteLink(selectedLink.sourceID, selectedLink.targetID)
+                        self.selectedLink = nil
+                        return nil
+                    }
+
+                    let targetNoteID = liveHighlightedNoteID ?? tapSequenceNoteID
+                    guard let targetNoteID else {
+                        return event
+                    }
+
+                    if activeIsolatedNoteID == targetNoteID || isolatedNoteID == targetNoteID {
+                        activeIsolatedNoteID = nil
+                        contextualNoteID = nil
+                        pendingEscapeParentID = nil
+                        focusReturnContextID = nil
+                        onIsolateNode(nil)
+                    } else if contextualNoteID == targetNoteID {
+                        contextualNoteID = nil
+                    }
+
+                    linkingSourceNoteID = nil
+                    quickCreateDraft = nil
+                    onDeleteNote(targetNoteID)
                     return nil
                 }
                 if event.keyCode == 53 {
+                    let shouldHandleEscape =
+                        quickCreateDraft != nil
+                        || activeIsolatedNoteID != nil
+                        || contextualNoteID != nil
+                        || isHoveringCanvas
+
+                    guard shouldHandleEscape else {
+                        return event
+                    }
+
+                    guard !isTextInputFocused() else {
+                        return event
+                    }
+
                     if quickCreateDraft != nil {
                         quickCreateDraft = nil
                         return nil
                     }
-                    if isolatedNoteID != nil {
-                        onIsolateNode(nil)
+
+                    if let isolatedNoteID = activeIsolatedNoteID {
+                        activeIsolatedNoteID = nil
+                        focusReturnContextID = nil
+                        pendingEscapeParentID = nil
                         contextualNoteID = nil
+                        quickCreateDraft = nil
+
+                        if let parentID = resolveFocusParentID(isolatedNoteID) {
+                            // Navigate up to parent's focus mode (hierarchical layers).
+                            activeIsolatedNoteID = parentID
+                            onIsolateNode(parentID)
+                        } else {
+                            // Already at root level — exit to root canvas.
+                            onIsolateNode(nil)
+                        }
                         return nil
                     }
+
                     if contextualNoteID != nil {
                         contextualNoteID = nil
+                        pendingEscapeParentID = nil
+                        focusReturnContextID = nil
                         return nil
                     }
+
+                    pendingEscapeParentID = nil
+                    focusReturnContextID = nil
+                    return nil
                 }
                 return event
             }
@@ -802,7 +921,7 @@ struct GraphCanvasView: View {
                     return event
                 }
 
-                guard event.modifierFlags.contains(.command) else {
+                guard !isTextInputFocused() else {
                     return event
                 }
 
@@ -936,6 +1055,7 @@ private struct QuickCreateDraft {
     var title: String
     var graphPoint: CGPoint
     var connectToID: Int64?
+    var focusParentID: Int64?
 }
 
 private struct QuickCreateNodeBubble: View {

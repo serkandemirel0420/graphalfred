@@ -46,6 +46,12 @@ ui-run:
 
 run:
 	@set -euo pipefail; \
+	EXISTING_BACKEND_PIDS=$$(lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null || true); \
+	if [[ -n "$$EXISTING_BACKEND_PIDS" ]]; then \
+		echo "Stopping existing backend on port $(BACKEND_PORT): $$EXISTING_BACKEND_PIDS"; \
+		kill $$EXISTING_BACKEND_PIDS >/dev/null 2>&1 || true; \
+		sleep 0.30; \
+	fi; \
 	echo "Starting backend on http://$(BACKEND_HOST):$(BACKEND_PORT)"; \
 	cargo run --manifest-path $(BACKEND_MANIFEST) -- --host $(BACKEND_HOST) --port $(BACKEND_PORT) --data-dir "$(BACKEND_DATA_DIR)" >/tmp/graphalfred-backend.log 2>&1 & \
 	BACKEND_PID=$$!; \
@@ -75,6 +81,12 @@ run:
 
 run-detached:
 	@set -euo pipefail; \
+	EXISTING_BACKEND_PIDS=$$(lsof -tiTCP:$(BACKEND_PORT) -sTCP:LISTEN 2>/dev/null || true); \
+	if [[ -n "$$EXISTING_BACKEND_PIDS" ]]; then \
+		echo "Stopping existing backend on port $(BACKEND_PORT): $$EXISTING_BACKEND_PIDS"; \
+		kill $$EXISTING_BACKEND_PIDS >/dev/null 2>&1 || true; \
+		sleep 0.30; \
+	fi; \
 	echo "Starting backend on http://$(BACKEND_HOST):$(BACKEND_PORT)"; \
 	cargo run --manifest-path $(BACKEND_MANIFEST) -- --host $(BACKEND_HOST) --port $(BACKEND_PORT) --data-dir "$(BACKEND_DATA_DIR)" >/tmp/graphalfred-backend.log 2>&1 & \
 	BACKEND_PID=$$!; \

@@ -7,6 +7,7 @@ struct Note: Codable, Identifiable, Hashable {
     var content: String
     var x: Double
     var y: Double
+    var parentId: Int64?
     var updatedAt: String
 }
 
@@ -32,6 +33,7 @@ struct CreateNoteRequest: Codable {
     var content: String?
     var x: Double?
     var y: Double?
+    var parentId: Int64? = nil
     var relatedIds: [Int64]?
 }
 
@@ -41,6 +43,7 @@ struct UpdateNoteRequest: Codable {
     var content: String
     var x: Double
     var y: Double
+    var parentId: Int64? = nil
     var relatedIds: [Int64]?
 }
 
@@ -65,6 +68,7 @@ struct NoteDraft: Identifiable {
     var content: String
     var x: Double
     var y: Double
+    var parentId: Int64?
     var relatedIds: Set<Int64>
 
     var id: String {

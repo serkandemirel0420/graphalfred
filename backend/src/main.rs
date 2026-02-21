@@ -181,6 +181,7 @@ struct Note {
     content: String,
     x: f64,
     y: f64,
+    parent_id: Option<i64>,
     updated_at: String,
 }
 
@@ -206,6 +207,7 @@ struct CreateNoteRequest {
     content: Option<String>,
     x: Option<f64>,
     y: Option<f64>,
+    parent_id: Option<i64>,
     related_ids: Option<Vec<i64>>,
 }
 
@@ -217,6 +219,7 @@ struct UpdateNoteRequest {
     content: String,
     x: f64,
     y: f64,
+    parent_id: Option<Option<i64>>,
     related_ids: Option<Vec<i64>>,
 }
 
@@ -279,6 +282,7 @@ impl Store {
                 content TEXT NOT NULL DEFAULT '',
                 x REAL NOT NULL DEFAULT 0,
                 y REAL NOT NULL DEFAULT 0,
+                parent_id INTEGER REFERENCES notes(id) ON DELETE SET NULL,
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now'))
             );
@@ -291,7 +295,7 @@ impl Store {
             );
 
             CREATE TRIGGER IF NOT EXISTS notes_touch_updated_at
-            AFTER UPDATE OF title, subtitle, content, x, y ON notes
+            AFTER UPDATE OF title, subtitle, content, x, y, parent_id ON notes
             BEGIN
                 UPDATE notes
                 SET updated_at = datetime('now')
@@ -300,13 +304,38 @@ impl Store {
             "#,
         )?;
 
+        if !self.column_exists("notes", "parent_id")? {
+            self.conn.execute(
+                "ALTER TABLE notes ADD COLUMN parent_id INTEGER REFERENCES notes(id) ON DELETE SET NULL",
+                [],
+            )?;
+        }
+
+        self.conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_notes_parent_id ON notes(parent_id)",
+            [],
+        )?;
+
         Ok(())
+    }
+
+    fn column_exists(&self, table: &str, column: &str) -> anyhow::Result<bool> {
+        let pragma = format!("PRAGMA table_info({table})");
+        let mut stmt = self.conn.prepare(&pragma)?;
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let name: String = row.get(1)?;
+            if name == column {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn list_notes(&self) -> anyhow::Result<Vec<Note>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT id, title, subtitle, content, x, y, updated_at
+            SELECT id, title, subtitle, content, x, y, parent_id, updated_at
             FROM notes
             ORDER BY updated_at DESC
             "#,
@@ -321,7 +350,7 @@ impl Store {
     fn get_note(&self, id: i64) -> anyhow::Result<Option<Note>> {
         let mut stmt = self.conn.prepare(
             r#"
-            SELECT id, title, subtitle, content, x, y, updated_at
+            SELECT id, title, subtitle, content, x, y, parent_id, updated_at
             FROM notes
             WHERE id = ?1
             "#,
@@ -340,6 +369,20 @@ impl Store {
         )? == 1;
 
         Ok(exists)
+    }
+
+    fn note_parent_id(&self, id: i64) -> anyhow::Result<Option<i64>> {
+        self.conn
+            .query_row("SELECT parent_id FROM notes WHERE id = ?1", [id], |row| {
+                row.get(0)
+            })
+            .optional()
+            .map(|value| value.flatten())
+            .map_err(Into::into)
+    }
+
+    fn notes_share_scope(&self, a: i64, b: i64) -> anyhow::Result<bool> {
+        Ok(self.note_parent_id(a)? == self.note_parent_id(b)?)
     }
 
     fn list_links(&self) -> anyhow::Result<Vec<Link>> {
@@ -383,12 +426,18 @@ impl Store {
             _ => self.default_spawn_position()?,
         };
 
+        if let Some(parent_id) = payload.parent_id {
+            if !self.note_exists(parent_id)? {
+                return Err(anyhow!("parent note {parent_id} not found"));
+            }
+        }
+
         self.conn.execute(
             r#"
-            INSERT INTO notes (title, subtitle, content, x, y)
-            VALUES (?1, ?2, ?3, ?4, ?5)
+            INSERT INTO notes (title, subtitle, content, x, y, parent_id)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)
             "#,
-            params![title, subtitle, content, x, y],
+            params![title, subtitle, content, x, y, payload.parent_id],
         )?;
 
         let id = self.conn.last_insert_rowid();
@@ -428,29 +477,64 @@ impl Store {
             return Err(anyhow!("title cannot be empty"));
         }
 
-        let updated = self.conn.execute(
-            r#"
-            UPDATE notes
-            SET title = ?1,
-                subtitle = ?2,
-                content = ?3,
-                x = ?4,
-                y = ?5
-            WHERE id = ?6
-            "#,
-            params![
-                payload.title.trim(),
-                payload.subtitle,
-                payload.content,
-                payload.x,
-                payload.y,
-                id
-            ],
-        )?;
+        if let Some(Some(parent_id)) = payload.parent_id {
+            if parent_id == id {
+                return Err(anyhow!("a note cannot be its own parent"));
+            }
+            if !self.note_exists(parent_id)? {
+                return Err(anyhow!("parent note {parent_id} not found"));
+            }
+        }
+
+        let updated = if let Some(parent_id) = payload.parent_id {
+            self.conn.execute(
+                r#"
+                UPDATE notes
+                SET title = ?1,
+                    subtitle = ?2,
+                    content = ?3,
+                    x = ?4,
+                    y = ?5,
+                    parent_id = ?6
+                WHERE id = ?7
+                "#,
+                params![
+                    payload.title.trim(),
+                    payload.subtitle,
+                    payload.content,
+                    payload.x,
+                    payload.y,
+                    parent_id,
+                    id
+                ],
+            )?
+        } else {
+            self.conn.execute(
+                r#"
+                UPDATE notes
+                SET title = ?1,
+                    subtitle = ?2,
+                    content = ?3,
+                    x = ?4,
+                    y = ?5
+                WHERE id = ?6
+                "#,
+                params![
+                    payload.title.trim(),
+                    payload.subtitle,
+                    payload.content,
+                    payload.x,
+                    payload.y,
+                    id
+                ],
+            )?
+        };
 
         if updated == 0 {
             return Err(anyhow!("note {id} not found"));
         }
+
+        self.prune_links_outside_scope(id)?;
 
         if let Some(related_ids) = payload.related_ids {
             self.sync_related_links(id, &related_ids)?;
@@ -521,6 +605,12 @@ impl Store {
             return Err(anyhow!("both notes must exist before linking"));
         }
 
+        if !self.notes_share_scope(source_id, target_id)? {
+            return Err(anyhow!(
+                "links can only connect notes inside the same focus layer"
+            ));
+        }
+
         self.conn.execute(
             r#"
             INSERT OR IGNORE INTO links (source_id, target_id)
@@ -536,12 +626,13 @@ impl Store {
     }
 
     fn sync_related_links(&mut self, note_id: i64, related_ids: &[i64]) -> anyhow::Result<()> {
+        let note_scope = self.note_parent_id(note_id)?;
         let mut desired = HashSet::new();
         for related_id in related_ids {
             if *related_id == note_id {
                 continue;
             }
-            if self.note_exists(*related_id)? {
+            if self.note_exists(*related_id)? && self.note_parent_id(*related_id)? == note_scope {
                 desired.insert(normalize_edge(note_id, *related_id)?);
             }
         }
@@ -577,6 +668,40 @@ impl Store {
         Ok(())
     }
 
+    fn prune_links_outside_scope(&self, note_id: i64) -> anyhow::Result<()> {
+        let note_scope = self.note_parent_id(note_id)?;
+
+        let mut stmt = self.conn.prepare(
+            r#"
+            SELECT source_id, target_id
+            FROM links
+            WHERE source_id = ?1 OR target_id = ?1
+            "#,
+        )?;
+
+        let current_rows = stmt.query_map([note_id], |row| {
+            Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?))
+        })?;
+
+        for edge in current_rows {
+            let (source_id, target_id) = edge?;
+            let other_id = if source_id == note_id {
+                target_id
+            } else {
+                source_id
+            };
+
+            if self.note_parent_id(other_id)? != note_scope {
+                self.conn.execute(
+                    "DELETE FROM links WHERE source_id = ?1 AND target_id = ?2",
+                    params![source_id, target_id],
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
     fn search_notes(&self, query: &str, limit: usize) -> anyhow::Result<Vec<Note>> {
         let query = query.trim();
         if query.is_empty() {
@@ -595,7 +720,7 @@ impl Store {
         }
 
         let sql = r#"
-            SELECT id, title, subtitle, content, x, y, updated_at
+            SELECT id, title, subtitle, content, x, y, parent_id, updated_at
             FROM notes
             WHERE title LIKE ?1 OR subtitle LIKE ?1 OR content LIKE ?1
             ORDER BY updated_at DESC
@@ -676,7 +801,8 @@ fn map_note_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Note> {
         content: row.get(3)?,
         x: row.get(4)?,
         y: row.get(5)?,
-        updated_at: row.get(6)?,
+        parent_id: row.get(6)?,
+        updated_at: row.get(7)?,
     })
 }
 
@@ -936,7 +1062,10 @@ fn map_store_error(err: anyhow::Error) -> ApiError {
     let message = format!("{err:#}");
     if message.contains("not found") {
         ApiError::NotFound(message)
-    } else if message.contains("cannot") || message.contains("must") || message.contains("invalid")
+    } else if message.contains("cannot")
+        || message.contains("must")
+        || message.contains("invalid")
+        || message.contains("can only")
     {
         ApiError::BadRequest(message)
     } else {

@@ -17,12 +17,14 @@ final class GraphViewModel: ObservableObject {
     @Published var isSettingsVisible = false
     @Published var settings: AppSettings = AppSettingsStore.load()
     @Published private(set) var canUndo = false
+    @Published private var focusCompanionGroups: [Int64: Set<Int64>] = GraphViewModel.loadFocusCompanionGroups()
 
     private let apiClient = APIClient()
     private let backendController = BackendController()
     private var undoStack: [UndoEntry] = []
     private var isApplyingUndo = false
     private let maxUndoDepth = 200
+    private static let focusCompanionGroupsKey = "graphalfred.focusCompanionGroups.v1"
 
     private struct UndoEntry {
         let title: String
@@ -48,6 +50,22 @@ final class GraphViewModel: ObservableObject {
 
     func reloadGraph() async throws {
         graph = try await apiClient.fetchGraph()
+        sanitizeFocusCompanionGroups()
+    }
+
+    func focusCompanionIDs(for isolatedID: Int64?) -> Set<Int64> {
+        guard let isolatedID else {
+            return []
+        }
+        return Set(
+            graph.notes
+                .filter { $0.parentId == isolatedID }
+                .map(\.id)
+        )
+    }
+
+    func focusParentID(for nodeID: Int64) -> Int64? {
+        graph.notes.first(where: { $0.id == nodeID })?.parentId
     }
 
     func createNote() {
@@ -60,15 +78,17 @@ final class GraphViewModel: ObservableObject {
             content: "",
             x: 0,
             y: 0,
+            parentId: nil,
             relatedIds: []
         )
     }
 
-    func quickCreateNote(title: String, x: Double, y: Double, connectTo: Int64?) {
+    func quickCreateNote(title: String, x: Double, y: Double, connectTo: Int64?, focusParentID: Int64?) {
         let trimmedTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedTitle.isEmpty else {
             return
         }
+        let effectiveFocusParentID = isolatedNoteId ?? focusParentID
 
         Task {
             do {
@@ -79,6 +99,7 @@ final class GraphViewModel: ObservableObject {
                         content: nil,
                         x: x,
                         y: y,
+                        parentId: effectiveFocusParentID,
                         relatedIds: connectTo.map { [$0] }
                     )
                 )
@@ -87,6 +108,9 @@ final class GraphViewModel: ObservableObject {
                     self.highlightedNoteId = created.id
                     self.selectedNote = nil
                     self.editingDraft = nil
+                    if let effectiveFocusParentID {
+                        self.isolatedNoteId = effectiveFocusParentID
+                    }
                     self.registerUndoAction(title: "Undo Quick Create Note") { [weak self] in
                         await self?.deleteNote(id: created.id, registerUndo: false)
                     }
@@ -115,6 +139,7 @@ final class GraphViewModel: ObservableObject {
             content: note.content,
             x: note.x,
             y: note.y,
+            parentId: note.parentId,
             relatedIds: relatedIDs(for: note.id)
         )
     }
@@ -188,6 +213,7 @@ final class GraphViewModel: ObservableObject {
         }
 
         do {
+            let scopedRelatedIDs = filteredRelatedIDs(for: draft)
             if let id = draft.existingId {
                 let previousNote = graph.notes.first(where: { $0.id == id })
                 let previousRelated = relatedIDs(for: id)
@@ -200,7 +226,8 @@ final class GraphViewModel: ObservableObject {
                         content: draft.content,
                         x: draft.x,
                         y: draft.y,
-                        relatedIds: Array(draft.relatedIds)
+                        parentId: draft.parentId,
+                        relatedIds: Array(scopedRelatedIDs)
                     )
                 )
                 highlightedNoteId = id
@@ -218,7 +245,8 @@ final class GraphViewModel: ObservableObject {
                         content: draft.content,
                         x: draft.x,
                         y: draft.y,
-                        relatedIds: Array(draft.relatedIds)
+                        parentId: draft.parentId,
+                        relatedIds: Array(scopedRelatedIDs)
                     )
                 )
                 highlightedNoteId = created.id
@@ -242,6 +270,7 @@ final class GraphViewModel: ObservableObject {
 
         do {
             try await apiClient.deleteNote(id: id)
+            removeNoteFromFocusCompanionGroups(id)
             selectedNote = nil
             editingDraft = nil
             try await reloadGraph()
@@ -309,6 +338,11 @@ final class GraphViewModel: ObservableObject {
     func connectNotes(sourceID: Int64, targetID: Int64, registerUndo: Bool = true) {
         let edge = normalizeEdge(sourceID, targetID)
         guard edge.0 != edge.1 else {
+            return
+        }
+
+        guard notesShareScope(edge.0, edge.1) else {
+            errorMessage = "Connections can only be created between notes in the same focused layer."
             return
         }
 
@@ -406,11 +440,107 @@ final class GraphViewModel: ObservableObject {
     func updateDraftRelation(noteID: Int64, enabled: Bool) {
         guard var draft = editingDraft else { return }
         if enabled {
+            guard parentID(of: noteID) == draft.parentId else {
+                return
+            }
             draft.relatedIds.insert(noteID)
         } else {
             draft.relatedIds.remove(noteID)
         }
         editingDraft = draft
+    }
+
+    func relationCandidates(for draft: NoteDraft?) -> [Note] {
+        guard let draft else {
+            return []
+        }
+        let scope = draft.parentId
+        return graph.notes.filter { note in
+            if let existingID = draft.existingId, note.id == existingID {
+                return false
+            }
+            return note.parentId == scope
+        }
+    }
+
+    private static func loadFocusCompanionGroups() -> [Int64: Set<Int64>] {
+        let defaults = UserDefaults.standard
+        guard let data = defaults.data(forKey: Self.focusCompanionGroupsKey) else {
+            return [:]
+        }
+
+        guard let raw = try? JSONDecoder().decode([String: [Int64]].self, from: data) else {
+            return [:]
+        }
+
+        var mapped: [Int64: Set<Int64>] = [:]
+        for (key, value) in raw {
+            if let parentID = Int64(key) {
+                mapped[parentID] = Set(value)
+            }
+        }
+        return mapped
+    }
+
+    private func persistFocusCompanionGroups() {
+        let raw: [String: [Int64]] = Dictionary(
+            uniqueKeysWithValues: focusCompanionGroups.map { key, value in
+                (String(key), Array(value).sorted())
+            }
+        )
+
+        guard let data = try? JSONEncoder().encode(raw) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: Self.focusCompanionGroupsKey)
+    }
+
+    private func addFocusCompanion(childID: Int64, to parentID: Int64) {
+        var next = focusCompanionGroups
+        var members = next[parentID] ?? []
+        members.insert(childID)
+        next[parentID] = members
+        focusCompanionGroups = next
+        persistFocusCompanionGroups()
+    }
+
+    private func removeNoteFromFocusCompanionGroups(_ noteID: Int64) {
+        var next: [Int64: Set<Int64>] = [:]
+
+        for (parentID, members) in focusCompanionGroups {
+            if parentID == noteID {
+                continue
+            }
+            let filtered = members.filter { $0 != noteID }
+            if !filtered.isEmpty {
+                next[parentID] = Set(filtered)
+            }
+        }
+
+        if next != focusCompanionGroups {
+            focusCompanionGroups = next
+            persistFocusCompanionGroups()
+        }
+    }
+
+    private func sanitizeFocusCompanionGroups() {
+        let validIDs = Set(graph.notes.map(\.id))
+        var next: [Int64: Set<Int64>] = [:]
+
+        for (parentID, members) in focusCompanionGroups {
+            guard validIDs.contains(parentID) else {
+                continue
+            }
+            let filtered = Set(members.filter { validIDs.contains($0) })
+            if !filtered.isEmpty {
+                next[parentID] = filtered
+            }
+        }
+
+        if next != focusCompanionGroups {
+            focusCompanionGroups = next
+            persistFocusCompanionGroups()
+        }
     }
 
     private func registerUndoAction(title: String, _ perform: @escaping @MainActor () async -> Void) {
@@ -440,6 +570,7 @@ final class GraphViewModel: ObservableObject {
                     content: note.content,
                     x: note.x,
                     y: note.y,
+                    parentId: note.parentId,
                     relatedIds: Array(relatedIDs)
                 )
             )
@@ -462,6 +593,7 @@ final class GraphViewModel: ObservableObject {
                     content: note.content,
                     x: note.x,
                     y: note.y,
+                    parentId: note.parentId,
                     relatedIds: Array(validRelatedIDs)
                 )
             )
@@ -501,6 +633,26 @@ final class GraphViewModel: ObservableObject {
             return nil
         }
         return Set(direct)
+    }
+
+    private func parentID(of noteID: Int64) -> Int64? {
+        graph.notes.first(where: { $0.id == noteID })?.parentId
+    }
+
+    private func notesShareScope(_ left: Int64, _ right: Int64) -> Bool {
+        parentID(of: left) == parentID(of: right)
+    }
+
+    private func filteredRelatedIDs(for draft: NoteDraft) -> Set<Int64> {
+        let scope = draft.parentId
+        return Set(
+            draft.relatedIds.filter { relatedID in
+                if let existingID = draft.existingId, relatedID == existingID {
+                    return false
+                }
+                return parentID(of: relatedID) == scope
+            }
+        )
     }
 
     private func normalizeEdge(_ sourceID: Int64, _ targetID: Int64) -> (Int64, Int64) {

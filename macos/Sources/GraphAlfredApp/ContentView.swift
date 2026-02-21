@@ -3,11 +3,12 @@ import SwiftUI
 struct ContentView: View {
     @EnvironmentObject private var viewModel: GraphViewModel
     @State private var hotKeyManager = GlobalHotKeyManager()
+    @State private var isEditorExpanded = false
 
     var body: some View {
         ZStack(alignment: .trailing) {
             LinearGradient(
-                colors: [Color(red: 0.13, green: 0.13, blue: 0.14), Color(red: 0.06, green: 0.06, blue: 0.08)],
+                colors: [viewModel.settings.theme.palette.appBackgroundTop, viewModel.settings.theme.palette.appBackgroundBottom],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
             )
@@ -39,7 +40,7 @@ struct ContentView: View {
                     Button("Search") {
                         viewModel.showSearch()
                     }
-                    .keyboardShortcut("k", modifiers: .command)
+                    .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: .command)
                     .buttonStyle(GraphPrimaryButtonStyle())
 
                     Spacer()
@@ -77,6 +78,9 @@ struct ContentView: View {
                     highlightedNoteID: viewModel.highlightedNoteId,
                     activeDragNoteID: viewModel.activeDragNoteId,
                     isolatedNoteID: viewModel.isolatedNoteId,
+                    theme: viewModel.settings.theme,
+                    allowsRightMousePan: viewModel.settings.rightClickPanEnabled,
+                    allowsDragToConnect: viewModel.settings.dragToConnectEnabled,
                     onSelect: { note in
                         viewModel.highlightNote(note)
                     },
@@ -92,18 +96,24 @@ struct ContentView: View {
                     onConnect: { sourceID, targetID in
                         viewModel.connectNotes(sourceID: sourceID, targetID: targetID)
                     },
+                    onDeleteLink: { sourceID, targetID in
+                        viewModel.deleteLink(sourceID: sourceID, targetID: targetID)
+                    },
+                    onQuickCreate: { title, x, y, connectTo in
+                        viewModel.quickCreateNote(title: title, x: x, y: y, connectTo: connectTo)
+                    },
                     onDragStateChange: { noteID in
                         viewModel.setActiveDragNote(id: noteID)
                     }
                 )
             }
             .padding(24)
-            .padding(.trailing, isInspectorVisible ? 420 : 0)
+            .padding(.trailing, isInspectorVisible ? 500 : 0)
             .animation(.easeInOut(duration: 0.2), value: isInspectorVisible)
 
             if isInspectorVisible {
                 inspectorPanel
-                    .frame(width: 390)
+                    .frame(width: 460)
                     .padding(.vertical, 24)
                     .padding(.trailing, 20)
                     .transition(.move(edge: .trailing).combined(with: .opacity))
@@ -142,13 +152,15 @@ struct ContentView: View {
                     .padding(.bottom, 14)
                 }
             }
+
+            if isEditorExpanded {
+                expandedEditorView
+                    .zIndex(12)
+                    .transition(.opacity)
+            }
         }
         .task {
-            hotKeyManager.start {
-                Task { @MainActor in
-                    viewModel.showSearchFromGlobalHotKey()
-                }
-            }
+            restartGlobalHotKey()
             await viewModel.boot()
         }
         .onDisappear {
@@ -159,6 +171,22 @@ struct ContentView: View {
                 await viewModel.searchIfNeeded()
             }
         }
+        .onChange(of: viewModel.settings.globalSearchHotKey) { _ in
+            restartGlobalHotKey()
+        }
+        .onChange(of: viewModel.editingDraft?.id) { next in
+            if next == nil {
+                isEditorExpanded = false
+            }
+        }
+        .sheet(isPresented: settingsPresentedBinding) {
+            SettingsPanel(
+                settings: settingsBinding,
+                onClose: {
+                    viewModel.hideSettings()
+                }
+            )
+        }
     }
 
     @ViewBuilder
@@ -167,15 +195,21 @@ struct ContentView: View {
             NoteEditorPanel(
                 draft: draftBinding,
                 allNotes: viewModel.graph.notes,
+                isExpanded: false,
+                onToggleExpand: {
+                    isEditorExpanded = true
+                },
                 onToggleRelation: { noteID, enabled in
                     viewModel.updateDraftRelation(noteID: noteID, enabled: enabled)
                 },
                 onCancel: {
+                    isEditorExpanded = false
                     viewModel.closeEditor()
                 },
                 onSave: {
-                    Task {
+                    Task { @MainActor in
                         await viewModel.saveEditor()
+                        isEditorExpanded = false
                     }
                 }
             )
@@ -215,6 +249,85 @@ struct ContentView: View {
             )
         } set: { draft in
             viewModel.editingDraft = draft
+        }
+    }
+
+    private var settingsPresentedBinding: Binding<Bool> {
+        Binding {
+            viewModel.isSettingsVisible
+        } set: { isPresented in
+            if isPresented {
+                viewModel.showSettings()
+            } else {
+                viewModel.hideSettings()
+            }
+        }
+    }
+
+    private var settingsBinding: Binding<AppSettings> {
+        Binding {
+            viewModel.settings
+        } set: { settings in
+            viewModel.applySettings(settings)
+        }
+    }
+
+    private func restartGlobalHotKey() {
+        hotKeyManager.start(shortcut: viewModel.settings.globalSearchHotKey) {
+            Task { @MainActor in
+                viewModel.showSearchFromGlobalHotKey()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var expandedEditorView: some View {
+        if viewModel.editingDraft != nil {
+            ZStack {
+                Rectangle()
+                    .fill(.black.opacity(0.62))
+                    .ignoresSafeArea()
+
+                LinearGradient(
+                    colors: [Color(red: 0.11, green: 0.11, blue: 0.13), Color(red: 0.05, green: 0.05, blue: 0.07)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .padding(18)
+
+                NoteEditorPanel(
+                    draft: draftBinding,
+                    allNotes: viewModel.graph.notes,
+                    isExpanded: true,
+                    onToggleExpand: {
+                        isEditorExpanded = false
+                    },
+                    onToggleRelation: { noteID, enabled in
+                        viewModel.updateDraftRelation(noteID: noteID, enabled: enabled)
+                    },
+                    onCancel: {
+                        isEditorExpanded = false
+                        viewModel.closeEditor()
+                    },
+                    onSave: {
+                        Task { @MainActor in
+                            await viewModel.saveEditor()
+                            isEditorExpanded = false
+                        }
+                    }
+                )
+                .padding(34)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .onExitCommand {
+                isEditorExpanded = false
+            }
+        } else {
+            Color.clear
+                .onAppear {
+                    isEditorExpanded = false
+                }
         }
     }
 }

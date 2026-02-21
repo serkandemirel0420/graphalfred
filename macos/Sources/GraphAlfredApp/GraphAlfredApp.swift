@@ -18,6 +18,21 @@ struct GraphAlfredApp: App {
                 }
         }
         .commands {
+            CommandGroup(replacing: .undoRedo) {
+                Button("Undo") {
+                    viewModel.undoLastAction()
+                }
+                .keyboardShortcut("z", modifiers: .command)
+                .disabled(!viewModel.canUndo)
+            }
+
+            CommandGroup(replacing: .appSettings) {
+                Button("Settings...") {
+                    viewModel.showSettings()
+                }
+                .keyboardShortcut(",", modifiers: .command)
+            }
+
             CommandMenu("Graph") {
                 Button("New Note") {
                     viewModel.createNote()
@@ -35,9 +50,9 @@ struct GraphAlfredApp: App {
                 Button("Quick Search (Window)") {
                     viewModel.showSearch()
                 }
-                .keyboardShortcut("k", modifiers: [.command])
+                .keyboardShortcut(viewModel.settings.inAppSearchShortcut.keyEquivalent, modifiers: [.command])
 
-                Button("Global Hotkey: Option+Space") {}
+                Button("Global Hotkey: \(viewModel.settings.globalSearchHotKey.title)") {}
                     .disabled(true)
             }
         }

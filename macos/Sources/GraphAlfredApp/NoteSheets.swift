@@ -75,6 +75,8 @@ struct NoteViewerPanel: View {
 struct NoteEditorPanel: View {
     @Binding var draft: NoteDraft
     let allNotes: [Note]
+    let isExpanded: Bool
+    let onToggleExpand: (() -> Void)?
     let onToggleRelation: (Int64, Bool) -> Void
     let onCancel: () -> Void
     let onSave: () -> Void
@@ -89,6 +91,17 @@ struct NoteEditorPanel: View {
                         .font(.system(size: 22, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                     Spacer()
+
+                    if let onToggleExpand {
+                        Button {
+                            onToggleExpand()
+                        } label: {
+                            Image(systemName: isExpanded ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right")
+                        }
+                        .buttonStyle(GraphSecondaryButtonStyle())
+                        .help(isExpanded ? "Exit full editor" : "Open full editor")
+                    }
+
                     Button {
                         onCancel()
                     } label: {
@@ -98,9 +111,13 @@ struct NoteEditorPanel: View {
                 }
 
                 TextField("Title", text: $draft.title)
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                    .controlSize(.large)
                     .textFieldStyle(.roundedBorder)
 
                 TextField("Subtitle", text: $draft.subtitle)
+                    .font(.system(size: 16, weight: .medium, design: .rounded))
+                    .controlSize(.large)
                     .textFieldStyle(.roundedBorder)
 
                 HStack {
@@ -123,11 +140,11 @@ struct NoteEditorPanel: View {
                 }
 
                 TextEditor(text: $draft.content)
-                    .font(.system(size: 14, weight: .regular, design: .rounded))
-                    .padding(7)
+                    .font(.system(size: 17, weight: .regular, design: .rounded))
+                    .padding(10)
                     .background(Color.black.opacity(0.28))
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                    .frame(minHeight: 180)
+                    .frame(minHeight: isExpanded ? 430 : 260)
 
                 Text("Related Notes")
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
@@ -139,10 +156,11 @@ struct NoteEditorPanel: View {
                             Toggle(isOn: relationBinding(for: note.id)) {
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(note.title)
+                                        .font(.system(size: 15, weight: .medium, design: .rounded))
                                         .foregroundStyle(.white)
                                     if !note.subtitle.isEmpty {
                                         Text(note.subtitle)
-                                            .font(.caption)
+                                            .font(.system(size: 12, weight: .regular, design: .rounded))
                                             .foregroundStyle(.secondary)
                                     }
                                 }
@@ -191,13 +209,14 @@ struct NoteEditorPanel: View {
             return
         }
 
-        do {
-            let fileURL = try NoteImageStore.savePNG(pngData)
-            draft.content += "\n\n![Pasted image](\(fileURL.absoluteString))\n"
-            pasteStatus = "Image pasted into note content."
-        } catch {
-            pasteStatus = "Failed to save image: \(error.localizedDescription)"
+        let encoded = pngData.base64EncodedString()
+        let markdownImage = "![Pasted image](data:image/png;base64,\(encoded))"
+        if draft.content.isEmpty {
+            draft.content = markdownImage
+        } else {
+            draft.content += "\n\n\(markdownImage)\n"
         }
+        pasteStatus = "Image embedded into note content."
     }
 }
 
@@ -310,26 +329,6 @@ private func loadImage(from path: String) -> NSImage? {
     }
 
     return nil
-}
-
-private enum NoteImageStore {
-    static func savePNG(_ data: Data) throws -> URL {
-        let fileManager = FileManager.default
-        guard let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first else {
-            throw NSError(domain: "GraphAlfred", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not resolve Application Support directory."])
-        }
-
-        let imagesDir = appSupport
-            .appendingPathComponent("GraphAlfred", isDirectory: true)
-            .appendingPathComponent("images", isDirectory: true)
-
-        try fileManager.createDirectory(at: imagesDir, withIntermediateDirectories: true)
-
-        let fileURL = imagesDir.appendingPathComponent("\(UUID().uuidString).png")
-        try data.write(to: fileURL, options: .atomic)
-
-        return fileURL
-    }
 }
 
 private extension NSImage {

@@ -183,6 +183,13 @@ final class GraphViewModel: ObservableObject {
         AppSettingsStore.save(settings)
     }
 
+    func saveCanvasViewState(panX: Double, panY: Double, zoom: Double) {
+        settings.canvasPanX = panX
+        settings.canvasPanY = panY
+        settings.canvasZoom = zoom
+        AppSettingsStore.save(settings)
+    }
+
     func undoLastAction() {
         guard !isApplyingUndo else {
             return

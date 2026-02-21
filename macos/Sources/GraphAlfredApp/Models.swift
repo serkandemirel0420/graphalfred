@@ -145,6 +145,9 @@ struct AppSettings: Codable, Equatable {
     var globalSearchHotKey: GlobalSearchHotKey = .optionSpace
     var rightClickPanEnabled: Bool = true
     var dragToConnectEnabled: Bool = false
+    var canvasPanX: Double = 0
+    var canvasPanY: Double = 0
+    var canvasZoom: Double = 1.0
 
     static let `default` = AppSettings()
 
@@ -154,6 +157,9 @@ struct AppSettings: Codable, Equatable {
         case globalSearchHotKey
         case rightClickPanEnabled
         case dragToConnectEnabled
+        case canvasPanX
+        case canvasPanY
+        case canvasZoom
     }
 
     init(
@@ -161,13 +167,19 @@ struct AppSettings: Codable, Equatable {
         inAppSearchShortcut: InAppSearchShortcut = .commandK,
         globalSearchHotKey: GlobalSearchHotKey = .optionSpace,
         rightClickPanEnabled: Bool = true,
-        dragToConnectEnabled: Bool = false
+        dragToConnectEnabled: Bool = false,
+        canvasPanX: Double = 0,
+        canvasPanY: Double = 0,
+        canvasZoom: Double = 1.0
     ) {
         self.theme = theme
         self.inAppSearchShortcut = inAppSearchShortcut
         self.globalSearchHotKey = globalSearchHotKey
         self.rightClickPanEnabled = rightClickPanEnabled
         self.dragToConnectEnabled = dragToConnectEnabled
+        self.canvasPanX = canvasPanX
+        self.canvasPanY = canvasPanY
+        self.canvasZoom = canvasZoom
     }
 
     init(from decoder: Decoder) throws {
@@ -177,6 +189,9 @@ struct AppSettings: Codable, Equatable {
         globalSearchHotKey = try container.decodeIfPresent(GlobalSearchHotKey.self, forKey: .globalSearchHotKey) ?? .optionSpace
         rightClickPanEnabled = try container.decodeIfPresent(Bool.self, forKey: .rightClickPanEnabled) ?? true
         dragToConnectEnabled = try container.decodeIfPresent(Bool.self, forKey: .dragToConnectEnabled) ?? false
+        canvasPanX = try container.decodeIfPresent(Double.self, forKey: .canvasPanX) ?? 0
+        canvasPanY = try container.decodeIfPresent(Double.self, forKey: .canvasPanY) ?? 0
+        canvasZoom = try container.decodeIfPresent(Double.self, forKey: .canvasZoom) ?? 1.0
     }
 
     func encode(to encoder: Encoder) throws {
@@ -186,6 +201,9 @@ struct AppSettings: Codable, Equatable {
         try container.encode(globalSearchHotKey, forKey: .globalSearchHotKey)
         try container.encode(rightClickPanEnabled, forKey: .rightClickPanEnabled)
         try container.encode(dragToConnectEnabled, forKey: .dragToConnectEnabled)
+        try container.encode(canvasPanX, forKey: .canvasPanX)
+        try container.encode(canvasPanY, forKey: .canvasPanY)
+        try container.encode(canvasZoom, forKey: .canvasZoom)
     }
 }
 

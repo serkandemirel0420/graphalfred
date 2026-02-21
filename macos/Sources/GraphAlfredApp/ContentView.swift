@@ -95,7 +95,7 @@ struct ContentView: View {
 
                     if viewModel.isBusy {
                         ProgressView()
-                            .tint(Color.white.opacity(0.6))
+                            .tint(Color.black.opacity(0.45))
                             .scaleEffect(0.75)
                     }
 
@@ -151,7 +151,15 @@ struct ContentView: View {
                     },
                     onDragStateChange: { noteID in
                         viewModel.setActiveDragNote(id: noteID)
-                    }
+                    },
+                    onViewStateChange: { pan, zoom in
+                        viewModel.saveCanvasViewState(panX: pan.width, panY: pan.height, zoom: zoom)
+                    },
+                    initialPanOffset: CGSize(
+                        width: viewModel.settings.canvasPanX,
+                        height: viewModel.settings.canvasPanY
+                    ),
+                    initialZoomScale: viewModel.settings.canvasZoom
                 )
             }
             .padding(24)
@@ -286,7 +294,7 @@ struct ContentView: View {
     @ViewBuilder
     private func toolbarDivider() -> some View {
         Rectangle()
-            .fill(Color.white.opacity(0.1))
+            .fill(Color.black.opacity(0.10))
             .frame(width: 1, height: 18)
     }
 
@@ -344,7 +352,7 @@ struct ContentView: View {
                     .ignoresSafeArea()
 
                 LinearGradient(
-                    colors: [Color(red: 0.11, green: 0.11, blue: 0.13), Color(red: 0.05, green: 0.05, blue: 0.07)],
+                    colors: [Color(red: 0.97, green: 0.97, blue: 0.98), Color(red: 0.93, green: 0.93, blue: 0.95)],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
                 )

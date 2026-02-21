@@ -32,24 +32,15 @@ struct SettingsPanel: View {
     var body: some View {
         HStack(spacing: 0) {
             sidebar
-            Rectangle().fill(Color.white.opacity(0.07)).frame(width: 1)
+            Rectangle().fill(Color.black.opacity(0.07)).frame(width: 1)
             contentArea
         }
         .frame(width: 720, height: 480)
-        .background(
-            ZStack {
-                Color(red: 0.07, green: 0.07, blue: 0.09)
-                LinearGradient(
-                    colors: [Color.white.opacity(0.03), Color.clear],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-            }
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .background(Color(red: 0.97, green: 0.97, blue: 0.98))
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(Color.white.opacity(0.1), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(Color.black.opacity(0.08), lineWidth: 1)
         )
     }
 
@@ -59,7 +50,7 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: 2) {
             Text("SETTINGS")
                 .font(.system(size: 9.5, weight: .heavy, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.3))
+                .foregroundStyle(Color(white: 0.60))
                 .tracking(1.4)
                 .padding(.bottom, 12)
 
@@ -85,7 +76,7 @@ struct SettingsPanel: View {
         .padding(.horizontal, 14)
         .padding(.vertical, 20)
         .frame(width: 185)
-        .background(Color.black.opacity(0.22))
+        .background(Color.black.opacity(0.03))
     }
 
     // MARK: – Content area
@@ -93,7 +84,7 @@ struct SettingsPanel: View {
     private var contentArea: some View {
         VStack(alignment: .leading, spacing: 0) {
             contentHeader
-            Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+            Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
             ScrollView {
                 VStack(alignment: .leading, spacing: 0) {
                     Group {
@@ -112,11 +103,11 @@ struct SettingsPanel: View {
     private var contentHeader: some View {
         HStack(spacing: 10) {
             Image(systemName: selectedSection.icon)
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.6))
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Color(white: 0.45))
             Text(selectedSection.title)
-                .font(.system(size: 17, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 16, weight: .bold, design: .rounded))
+                .foregroundStyle(Color(white: 0.10))
             Spacer()
             Button { onClose() } label: {
                 Image(systemName: "xmark")
@@ -214,10 +205,10 @@ struct SettingsPanel: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
                 .font(.system(size: 13, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(white: 0.10))
             Text(detail)
                 .font(.system(size: 12, weight: .regular, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.45))
+                .foregroundStyle(Color(white: 0.52))
         }
     }
 
@@ -226,11 +217,11 @@ struct SettingsPanel: View {
         VStack(spacing: 0) {
             content()
         }
-        .background(Color.white.opacity(0.04))
+        .background(Color.white.opacity(0.70))
         .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .stroke(Color.white.opacity(0.09), lineWidth: 1)
+                .stroke(Color.black.opacity(0.07), lineWidth: 1)
         )
     }
 
@@ -244,10 +235,10 @@ struct SettingsPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(label)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(white: 0.12))
                 Text(detail)
                     .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.45))
+                    .foregroundStyle(Color(white: 0.52))
             }
             Spacer()
             picker()
@@ -262,10 +253,10 @@ struct SettingsPanel: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(label)
                     .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(Color(white: 0.12))
                 Text(detail)
                     .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.45))
+                    .foregroundStyle(Color(white: 0.52))
             }
             Spacer()
             Toggle("", isOn: isOn)
@@ -279,7 +270,7 @@ struct SettingsPanel: View {
     @ViewBuilder
     private func rowDivider() -> some View {
         Rectangle()
-            .fill(Color.white.opacity(0.07))
+            .fill(Color.black.opacity(0.06))
             .frame(height: 1)
             .padding(.horizontal, 16)
     }
@@ -303,16 +294,16 @@ private struct SidebarTabRow: View {
                     .font(.system(size: 13, weight: .medium, design: .rounded))
                 Spacer()
             }
-            .foregroundStyle(isSelected ? .white : Color.white.opacity(0.5))
+            .foregroundStyle(isSelected ? Color(white: 0.10) : Color(white: 0.50))
             .padding(.horizontal, 10)
             .padding(.vertical, 9)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .fill(isSelected ? Color.white.opacity(0.10) : Color.clear)
+                    .fill(isSelected ? Color.black.opacity(0.07) : Color.clear)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
-                    .stroke(isSelected ? Color.white.opacity(0.12) : Color.clear, lineWidth: 1)
+                    .stroke(isSelected ? Color.black.opacity(0.08) : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -339,26 +330,24 @@ private struct ThemeCard: View {
                             )
                         )
 
-                    // Mini graph preview
-                    VStack(spacing: 0) {
-                        HStack(spacing: 18) {
-                            Circle()
-                                .fill(Color.white.opacity(0.22))
-                                .frame(width: 9, height: 9)
-                            Circle()
-                                .fill(Color.white.opacity(0.14))
-                                .frame(width: 7, height: 7)
-                            Circle()
-                                .fill(Color.white.opacity(0.18))
-                                .frame(width: 8, height: 8)
-                        }
+                    HStack(spacing: 18) {
+                        Circle()
+                            .fill(Color.white.opacity(0.85))
+                            .frame(width: 9, height: 9)
+                            .shadow(color: Color.black.opacity(0.08), radius: 3, y: 1)
+                        Circle()
+                            .fill(Color.white.opacity(0.70))
+                            .frame(width: 7, height: 7)
+                        Circle()
+                            .fill(Color.white.opacity(0.78))
+                            .frame(width: 8, height: 8)
                     }
                 }
                 .frame(height: 86)
                 .overlay(
                     RoundedRectangle(cornerRadius: 11, style: .continuous)
                         .stroke(
-                            isSelected ? Color.cyan.opacity(0.75) : Color.white.opacity(0.1),
+                            isSelected ? Color(white: 0.25).opacity(0.6) : Color.black.opacity(0.08),
                             lineWidth: isSelected ? 2 : 1
                         )
                 )
@@ -367,11 +356,11 @@ private struct ThemeCard: View {
                     if isSelected {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(Color.cyan.opacity(0.9))
+                            .foregroundStyle(Color(white: 0.20))
                     }
                     Text(theme.title)
                         .font(.system(size: 12, weight: isSelected ? .bold : .semibold, design: .rounded))
-                        .foregroundStyle(isSelected ? .white : Color.white.opacity(0.62))
+                        .foregroundStyle(isSelected ? Color(white: 0.10) : Color(white: 0.50))
                 }
                 .frame(height: 16)
             }

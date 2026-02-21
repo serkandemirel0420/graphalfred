@@ -10,22 +10,13 @@ private struct InspectorCard<Content: View>: View {
     var body: some View {
         content
             .frame(maxHeight: .infinity)
-            .background(
-                ZStack {
-                    Color(red: 0.08, green: 0.08, blue: 0.10)
-                    LinearGradient(
-                        colors: [Color.white.opacity(0.03), Color.clear],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                }
-            )
+            .background(Color(red: 0.97, green: 0.97, blue: 0.98))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                    .stroke(Color.black.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: Color.black.opacity(0.45), radius: 24, y: 8)
+            .shadow(color: Color.black.opacity(0.10), radius: 20, y: 6)
     }
 }
 
@@ -44,14 +35,14 @@ struct NoteViewerPanel: View {
                 HStack(alignment: .top, spacing: 10) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(note.title)
-                            .font(.system(size: 22, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .font(.system(size: 20, weight: .bold, design: .rounded))
+                            .foregroundStyle(Color(white: 0.08))
                             .lineLimit(2)
 
                         if !note.subtitle.isEmpty {
                             Text(note.subtitle)
                                 .font(.system(size: 13, weight: .medium, design: .rounded))
-                                .foregroundStyle(Color.white.opacity(0.58))
+                                .foregroundStyle(Color(white: 0.48))
                         }
                     }
 
@@ -66,7 +57,7 @@ struct NoteViewerPanel: View {
                 .padding(.top, 20)
                 .padding(.bottom, 14)
 
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+                Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
 
                 // Content
                 ScrollView {
@@ -76,7 +67,7 @@ struct NoteViewerPanel: View {
                         .padding(.vertical, 16)
                 }
 
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+                Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
 
                 // Actions
                 HStack(spacing: 8) {
@@ -123,9 +114,9 @@ struct NoteEditorPanel: View {
         InspectorCard {
             VStack(alignment: .leading, spacing: 0) {
                 editorHeader
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+                Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
                 editorFields
-                Rectangle().fill(Color.white.opacity(0.07)).frame(height: 1)
+                Rectangle().fill(Color.black.opacity(0.06)).frame(height: 1)
                 editorFooter
             }
         }
@@ -138,8 +129,8 @@ struct NoteEditorPanel: View {
     private var editorHeader: some View {
         HStack {
             Text(draft.existingId == nil ? "New Note" : "Edit Note")
-                .font(.system(size: 16, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+                .foregroundStyle(Color(white: 0.12))
 
             Spacer()
 
@@ -172,8 +163,8 @@ struct NoteEditorPanel: View {
                 // Title
                 editorFieldRow(label: "Title", required: true) {
                     TextField("", text: $draft.title)
-                        .font(.system(size: 19, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .font(.system(size: 18, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Color(white: 0.10))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .title)
                         .onSubmit { focusedField = .subtitle }
@@ -185,7 +176,7 @@ struct NoteEditorPanel: View {
                 editorFieldRow(label: "Subtitle") {
                     TextField("", text: $draft.subtitle)
                         .font(.system(size: 14, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.82))
+                        .foregroundStyle(Color(white: 0.38))
                         .textFieldStyle(.plain)
                         .focused($focusedField, equals: .subtitle)
                         .onSubmit { focusedField = .content }
@@ -201,22 +192,22 @@ struct NoteEditorPanel: View {
                         if let pasteStatus {
                             Text(pasteStatus)
                                 .font(.system(size: 11, weight: .regular, design: .rounded))
-                                .foregroundStyle(Color.white.opacity(0.55))
+                                .foregroundStyle(Color(white: 0.52))
                         }
                         Button("Paste Image") { pasteImageFromClipboard() }
                             .buttonStyle(GraphSecondaryButtonStyle())
                     }
 
                     TextEditor(text: $draft.content)
-                        .font(.system(size: 15, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.9))
+                        .font(.system(size: 14, weight: .regular, design: .rounded))
+                        .foregroundStyle(Color(white: 0.15))
                         .scrollContentBackground(.hidden)
                         .padding(10)
-                        .background(Color.black.opacity(0.22))
+                        .background(Color.black.opacity(0.03))
                         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                         .overlay(
                             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                                .stroke(Color.black.opacity(0.07), lineWidth: 1)
                         )
                         .focused($focusedField, equals: .content)
                         .frame(minHeight: isExpanded ? 280 : 160)
@@ -235,7 +226,7 @@ struct NoteEditorPanel: View {
                                                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                                                 .overlay(
                                                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                                                        .stroke(Color.white.opacity(0.12), lineWidth: 1)
+                                                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
                                                 )
 
                                             Button {
@@ -243,8 +234,8 @@ struct NoteEditorPanel: View {
                                             } label: {
                                                 Image(systemName: "xmark.circle.fill")
                                                     .font(.system(size: 16, weight: .bold))
-                                                    .foregroundStyle(Color.white)
-                                                    .shadow(color: .black.opacity(0.6), radius: 2)
+                                                    .foregroundStyle(Color(white: 0.30))
+                                                    .shadow(color: .white.opacity(0.8), radius: 2)
                                             }
                                             .buttonStyle(.plain)
                                             .offset(x: 6, y: -6)
@@ -284,10 +275,10 @@ struct NoteEditorPanel: View {
                     if selectedCount > 0 {
                         Text("\(selectedCount)")
                             .font(.system(size: 10, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(Color(white: 0.12))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
-                            .background(Color.cyan.opacity(0.72))
+                            .background(Color.black.opacity(0.09))
                             .clipShape(Capsule())
                     }
 
@@ -295,7 +286,7 @@ struct NoteEditorPanel: View {
 
                     Image(systemName: relatedExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.white.opacity(0.45))
+                        .foregroundStyle(Color(white: 0.55))
                 }
                 .padding(.horizontal, 20)
                 .padding(.vertical, 12)
@@ -314,16 +305,16 @@ struct NoteEditorPanel: View {
                                       : "circle")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundStyle(draft.relatedIds.contains(note.id)
-                                                     ? Color.cyan.opacity(0.85) : Color.white.opacity(0.35))
+                                                     ? Color(white: 0.15) : Color(white: 0.70))
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     Text(note.title)
                                         .font(.system(size: 13, weight: .medium, design: .rounded))
-                                        .foregroundStyle(.white)
+                                        .foregroundStyle(Color(white: 0.12))
                                     if !note.subtitle.isEmpty {
                                         Text(note.subtitle)
                                             .font(.system(size: 11, weight: .regular, design: .rounded))
-                                            .foregroundStyle(Color.white.opacity(0.45))
+                                            .foregroundStyle(Color(white: 0.50))
                                     }
                                 }
                                 Spacer()
@@ -333,7 +324,7 @@ struct NoteEditorPanel: View {
                         }
                         .buttonStyle(.plain)
 
-                        Rectangle().fill(Color.white.opacity(0.05)).frame(height: 1)
+                        Rectangle().fill(Color.black.opacity(0.04)).frame(height: 1)
                             .padding(.horizontal, 20)
                     }
                 }
@@ -353,7 +344,7 @@ struct NoteEditorPanel: View {
 
             Text(hasSaveableTitle ? "" : "Title required")
                 .font(.system(size: 11, weight: .regular, design: .rounded))
-                .foregroundStyle(Color.white.opacity(0.35))
+                .foregroundStyle(Color(white: 0.55))
 
             Button("Save") { commitAndSave() }
                 .disabled(!hasSaveableTitle)
@@ -378,7 +369,7 @@ struct NoteEditorPanel: View {
                 if required {
                     Text("*")
                         .font(.system(size: 10, weight: .bold))
-                        .foregroundStyle(Color.red.opacity(0.75))
+                        .foregroundStyle(Color(red: 0.82, green: 0.18, blue: 0.15).opacity(0.75))
                 }
             }
             field()
@@ -391,14 +382,14 @@ struct NoteEditorPanel: View {
     private func editorLabel(_ text: String) -> some View {
         Text(text)
             .font(.system(size: 11, weight: .semibold, design: .rounded))
-            .foregroundStyle(Color.white.opacity(0.38))
+            .foregroundStyle(Color(white: 0.52))
             .textCase(.uppercase)
             .tracking(0.6)
     }
 
     @ViewBuilder
     private func rowDivider() -> some View {
-        Rectangle().fill(Color.white.opacity(0.06)).frame(height: 1)
+        Rectangle().fill(Color.black.opacity(0.05)).frame(height: 1)
     }
 
     private func pasteImageFromClipboard() {
@@ -470,7 +461,7 @@ private struct RichNoteContentView: View {
             if blocks.isEmpty {
                 Text("No content yet.")
                     .font(.system(size: 14, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.35))
+                    .foregroundStyle(Color(white: 0.65))
             }
 
             ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
@@ -479,7 +470,7 @@ private struct RichNoteContentView: View {
                     if !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         Text(text)
                             .font(.system(size: 14, weight: .regular, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.88))
+                            .foregroundStyle(Color(white: 0.15))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 case let .image(path):
@@ -492,7 +483,7 @@ private struct RichNoteContentView: View {
                     } else {
                         Text("Image could not be loaded.")
                             .font(.system(size: 12, weight: .regular, design: .rounded))
-                            .foregroundStyle(Color.orange.opacity(0.9))
+                            .foregroundStyle(Color.orange.opacity(0.85))
                     }
                 }
             }
@@ -588,7 +579,7 @@ struct QuickSearchOverlay: View {
 
     var body: some View {
         ZStack {
-            Color.black.opacity(0.22)
+            Color.black.opacity(0.18)
                 .ignoresSafeArea()
                 .onTapGesture { onClose() }
 
@@ -596,12 +587,13 @@ struct QuickSearchOverlay: View {
                 VStack(spacing: 0) {
                     HStack(spacing: 10) {
                         Image(systemName: "magnifyingglass")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Color(white: 0.55))
                             .font(.system(size: 17, weight: .medium))
-                        TextField("Search notes...", text: $query)
+                        TextField("Search notes…", text: $query)
                             .textFieldStyle(.plain)
                             .focused($isFocused)
-                            .font(.system(size: 24, weight: .medium, design: .rounded))
+                            .font(.system(size: 22, weight: .medium, design: .rounded))
+                            .foregroundStyle(Color(white: 0.10))
                             .onSubmit {
                                 if let first = results.first {
                                     onPick(first)
@@ -612,10 +604,10 @@ struct QuickSearchOverlay: View {
 
                         Text("esc")
                             .font(.system(size: 11, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Color.white.opacity(0.75))
+                            .foregroundStyle(Color(white: 0.45))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
-                            .background(Color.white.opacity(0.12))
+                            .background(Color.black.opacity(0.07))
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     }
                     .padding(16)
@@ -626,7 +618,8 @@ struct QuickSearchOverlay: View {
                         LazyVStack(alignment: .leading, spacing: 0) {
                             if results.isEmpty {
                                 Text(query.isEmpty ? "Type to search notes" : "No results")
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Color(white: 0.55))
+                                    .font(.system(size: 14, weight: .regular, design: .rounded))
                                     .padding(18)
                                     .frame(maxWidth: .infinity, alignment: .leading)
                             }
@@ -637,16 +630,17 @@ struct QuickSearchOverlay: View {
                                 } label: {
                                     VStack(alignment: .leading, spacing: 4) {
                                         Text(note.title)
-                                            .font(.system(size: 17, weight: .semibold, design: .rounded))
+                                            .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                            .foregroundStyle(Color(white: 0.10))
                                         if !note.subtitle.isEmpty {
                                             Text(note.subtitle)
                                                 .font(.system(size: 13, weight: .regular, design: .rounded))
-                                                .foregroundStyle(.secondary)
+                                                .foregroundStyle(Color(white: 0.48))
                                         }
                                         Text(note.content)
                                             .font(.system(size: 12, weight: .regular, design: .rounded))
                                             .lineLimit(2)
-                                            .foregroundStyle(.secondary)
+                                            .foregroundStyle(Color(white: 0.55))
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -658,15 +652,15 @@ struct QuickSearchOverlay: View {
                         }
                     }
                 }
-                .frame(width: 760, height: 430)
-                .background(.regularMaterial)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .frame(width: 720, height: 400)
+                .background(Color(red: 0.97, green: 0.97, blue: 0.98))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.white.opacity(0.24), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.black.opacity(0.08), lineWidth: 1)
                 )
-                .shadow(color: Color.black.opacity(0.35), radius: 26, y: 10)
-                .padding(.top, 84)
+                .shadow(color: Color.black.opacity(0.14), radius: 24, y: 10)
+                .padding(.top, 80)
 
                 Spacer()
             }

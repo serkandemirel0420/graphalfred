@@ -38,6 +38,9 @@ struct GraphCanvasView: View {
     let onDeleteNote: (Int64) -> Void
     let onQuickCreate: (String, Double, Double, Int64?, Int64?) -> Void
     let onDragStateChange: (Int64?) -> Void
+    let onViewStateChange: (CGSize, CGFloat) -> Void
+    let initialPanOffset: CGSize
+    let initialZoomScale: CGFloat
 
     @State private var dragOrigins: [Int64: CGPoint] = [:]
     @State private var transientNodePositions: [Int64: CGPoint] = [:]
@@ -71,6 +74,7 @@ struct GraphCanvasView: View {
     @State private var activeIsolatedNoteID: Int64?
     @State private var liveHighlightedNoteID: Int64?
     @State private var isHoveringBackground = false
+    @State private var viewStateSaveTask: DispatchWorkItem?
 
     private static let doubleTapThreshold: TimeInterval = 0.28
     private static let doubleEscapeThreshold: TimeInterval = 0.35
@@ -94,12 +98,15 @@ struct GraphCanvasView: View {
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(Color.black.opacity(0.07), lineWidth: 1)
             )
             .simultaneousGesture(canvasPanGesture)
             .simultaneousGesture(canvasMagnificationGesture)
             .onHover { isHoveringCanvas = $0 }
             .onAppear {
+                panOffset = initialPanOffset
+                panStart = initialPanOffset
+                zoomScale = initialZoomScale
                 activeIsolatedNoteID = isolatedNoteID
                 liveHighlightedNoteID = highlightedNoteID
                 installEventMonitors()
@@ -133,6 +140,8 @@ struct GraphCanvasView: View {
             .onChange(of: controlCommand?.id) { _ in
                 applyControlCommand(controlCommand?.command)
             }
+            .onChange(of: panOffset) { _ in scheduleViewStateSave() }
+            .onChange(of: zoomScale) { _ in scheduleViewStateSave() }
             .onDisappear {
                 pendingDoubleAction?.cancel()
                 onDragStateChange(nil)
@@ -246,21 +255,20 @@ struct GraphCanvasView: View {
                     path.addLine(to: to)
 
                     if isSelected {
-                        // Glow halo underneath
                         context.stroke(
                             path,
-                            with: .color(Color.cyan.opacity(0.18)),
-                            style: StrokeStyle(lineWidth: 7, lineCap: .round)
+                            with: .color(Color.black.opacity(0.12)),
+                            style: StrokeStyle(lineWidth: 6, lineCap: .round)
                         )
                         context.stroke(
                             path,
-                            with: .color(Color.cyan.opacity(0.85)),
+                            with: .color(Color(white: 0.18)),
                             style: StrokeStyle(lineWidth: 2.0, lineCap: .round)
                         )
                     } else {
                         context.stroke(
                             path,
-                            with: .color(Color.white.opacity(0.14)),
+                            with: .color(Color.black.opacity(0.14)),
                             style: StrokeStyle(lineWidth: 1.0, lineCap: .round)
                         )
                     }
@@ -321,20 +329,20 @@ struct GraphCanvasView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "link.badge.minus")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.red.opacity(0.88))
+                        .foregroundStyle(Color(red: 0.82, green: 0.18, blue: 0.15))
                     Text("Connection selected")
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(white: 0.12))
                     Text("· Delete to remove")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.45))
+                        .foregroundStyle(Color(white: 0.48))
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(Color.black.opacity(0.65))
+                .background(Color.white.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.red.opacity(0.28), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
                 .position(x: size.width / 2, y: 26)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -343,20 +351,20 @@ struct GraphCanvasView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "scope")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.cyan.opacity(0.88))
+                        .foregroundStyle(Color(white: 0.30))
                     Text(note.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(white: 0.12))
                     Text("· direct connections")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.45))
+                        .foregroundStyle(Color(white: 0.48))
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(Color.black.opacity(0.65))
+                .background(Color.white.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.cyan.opacity(0.22), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
                 .position(x: size.width / 2, y: 26)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -365,23 +373,23 @@ struct GraphCanvasView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.cyan.opacity(0.88))
+                        .foregroundStyle(Color(white: 0.30))
                     Text("Connecting from")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.6))
+                        .foregroundStyle(Color(white: 0.48))
                     Text(source.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(white: 0.12))
                     Text("· click a node")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.45))
+                        .foregroundStyle(Color(white: 0.48))
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(Color.black.opacity(0.65))
+                .background(Color.white.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.cyan.opacity(0.22), lineWidth: 0.5))
-                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
                 .position(x: size.width / 2, y: 26)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -390,21 +398,20 @@ struct GraphCanvasView: View {
                 HStack(spacing: 7) {
                     Image(systemName: "square.3.layers.3d.top.filled")
                         .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(Color.cyan.opacity(0.88))
+                        .foregroundStyle(Color(white: 0.30))
                     Text(note.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(Color(white: 0.12))
                     Text("· ESC to go up")
                         .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color.white.opacity(0.42))
+                        .foregroundStyle(Color(white: 0.48))
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
-                .background(Color.black.opacity(0.65))
+                .background(Color.white.opacity(0.92))
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.cyan.opacity(0.28), lineWidth: 0.5))
-                .shadow(color: Color.cyan.opacity(0.12), radius: 12, y: 0)
-                .shadow(color: Color.black.opacity(0.4), radius: 10, y: 4)
+                .overlay(Capsule().stroke(Color.black.opacity(0.08), lineWidth: 0.5))
+                .shadow(color: Color.black.opacity(0.10), radius: 10, y: 3)
                 .position(x: size.width / 2, y: 26)
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
@@ -531,7 +538,16 @@ struct GraphCanvasView: View {
 
         if contextualNoteID != nil {
             contextualNoteID = nil
+            return
         }
+
+        // Root canvas tap — quick-create a new note at this position
+        quickCreateDraft = QuickCreateDraft(
+            title: "",
+            graphPoint: graphPoint(from: location, in: size),
+            connectToID: nil,
+            focusParentID: nil
+        )
     }
 
     private func point(for note: Note, in size: CGSize) -> CGPoint {
@@ -744,6 +760,17 @@ struct GraphCanvasView: View {
         }
     }
 
+    private func scheduleViewStateSave() {
+        viewStateSaveTask?.cancel()
+        let pan = panOffset
+        let zoom = zoomScale
+        let task = DispatchWorkItem {
+            onViewStateChange(pan, zoom)
+        }
+        viewStateSaveTask = task
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: task)
+    }
+
     private func clampedScale(_ proposed: CGFloat) -> CGFloat {
         min(Self.maxZoom, max(Self.minZoom, proposed))
     }
@@ -799,12 +826,9 @@ struct GraphCanvasView: View {
                 .font(.system(size: 10, weight: .bold))
                 .foregroundStyle(.white)
                 .padding(7)
-                .background(isActive ? Color.red.opacity(0.88) : Color.cyan.opacity(0.88))
+                .background(isActive ? Color(red: 0.82, green: 0.18, blue: 0.15) : Color(white: 0.15))
                 .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color.white.opacity(0.6), lineWidth: 0.8)
-                )
+                .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
         }
         .buttonStyle(.plain)
         .help(isActive ? "Cancel connect mode" : "Create a connection")
@@ -1106,11 +1130,11 @@ private struct QuickCreateNodeBubble: View {
                 "",
                 text: $title,
                 prompt: Text("New note…")
-                    .foregroundColor(Color.white.opacity(0.35))
+                    .foregroundColor(Color(white: 0.62))
             )
             .textFieldStyle(.plain)
             .font(.system(size: 14, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(Color(white: 0.10))
             .frame(minWidth: 150, maxWidth: 260)
             .focused($isFocused)
             .onSubmit {
@@ -1122,23 +1146,22 @@ private struct QuickCreateNodeBubble: View {
             if hasValidTitle {
                 Image(systemName: "return")
                     .font(.system(size: 10, weight: .bold))
-                    .foregroundStyle(Color.cyan.opacity(0.7))
+                    .foregroundStyle(Color(white: 0.30))
                     .padding(.horizontal, 5)
                     .padding(.vertical, 3)
-                    .background(Color.cyan.opacity(0.12))
+                    .background(Color.black.opacity(0.07))
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 9)
-        .background(Color.white.opacity(0.07))
+        .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .stroke(Color.cyan.opacity(0.55), lineWidth: 1.5)
+                .stroke(Color.black.opacity(0.14), lineWidth: 1.5)
         )
-        .shadow(color: Color.black.opacity(0.36), radius: 10, y: 4)
-        .shadow(color: Color.cyan.opacity(0.18), radius: 14, y: 0)
+        .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
         .onExitCommand {
             onCancel()
         }
@@ -1161,22 +1184,22 @@ private struct NodeBubbleView: View {
 
     private var bubbleFillColor: Color {
         if isBeingDragged {
-            return Color.orange.opacity(0.18)
+            return Color.orange.opacity(0.10)
         }
         if isHighlighted {
-            return Color.cyan.opacity(0.15)
+            return Color(red: 0.93, green: 0.95, blue: 0.99)
         }
-        return Color.white.opacity(0.07)
+        return Color.white
     }
 
     private var bubbleStrokeColor: Color {
         if isBeingDragged {
-            return Color.orange.opacity(0.75)
+            return Color.orange.opacity(0.45)
         }
         if isHighlighted {
-            return Color.cyan.opacity(0.62)
+            return Color(red: 0.55, green: 0.65, blue: 0.90).opacity(0.55)
         }
-        return Color.white.opacity(0.11)
+        return Color.black.opacity(0.09)
     }
 
     private var bubbleStrokeWidth: CGFloat {
@@ -1187,13 +1210,13 @@ private struct NodeBubbleView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(note.title)
                 .font(.system(size: 14, weight: .semibold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(Color(white: 0.10))
                 .lineLimit(1)
 
             if !note.subtitle.isEmpty {
                 Text(note.subtitle)
                     .font(.system(size: 11, weight: .regular, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.50))
+                    .foregroundStyle(Color(white: 0.48))
                     .lineLimit(1)
             }
         }
@@ -1207,9 +1230,7 @@ private struct NodeBubbleView: View {
             RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(bubbleStrokeColor, lineWidth: bubbleStrokeWidth)
         )
-        .shadow(color: Color.black.opacity(0.36), radius: 10, y: 4)
-        .shadow(color: isHighlighted ? Color.cyan.opacity(0.30) : Color.clear, radius: 14, y: 0)
-        .shadow(color: isBeingDragged ? Color.orange.opacity(0.22) : Color.clear, radius: 12, y: 0)
+        .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)
         .scaleEffect(nodeScale)
         .animation(.spring(response: 0.22, dampingFraction: 0.72), value: nodeScale)
     }

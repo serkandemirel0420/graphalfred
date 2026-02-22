@@ -37,12 +37,14 @@ struct GraphCanvasView: View {
     let onDeleteNote: (Int64) -> Void
     let onQuickCreate: (String, Double, Double, Int64?, Int64?) -> Void
     let onDragStateChange: (Int64?) -> Void
-    let onViewStateChange: (CGSize, CGFloat) -> Void
+    let onViewStateChange: (String?, CGSize, CGFloat) -> Void
     /// Called when ESC is pressed. Return `true` to consume the event (editor was closed),
     /// `false` to let the canvas handle it normally.
     var onEscapeEditor: (() -> Bool)? = nil
     let initialPanOffset: CGSize
     let initialZoomScale: CGFloat
+    let initialStageStates: [String: [Double]]
+    let nodeStyle: NodeStyleConfig
 
     @State private var dragOrigins: [Int64: CGPoint] = [:]
     @State private var transientNodePositions: [Int64: CGPoint] = [:]
@@ -56,6 +58,9 @@ struct GraphCanvasView: View {
     @State private var lastBackgroundTapTime: Date = .distantPast
     @State private var linkingSourceNoteID: Int64?
     @State private var contextualNoteID: Int64?
+    @State private var elasticDragSourceNoteID: Int64?
+    @State private var elasticDragTranslation: CGSize = .zero
+    @State private var elasticDragTargetNoteID: Int64?
     @State private var selectedLink: (sourceID: Int64, targetID: Int64)?
     @State private var quickCreateDraft: QuickCreateDraft?
 
@@ -78,6 +83,10 @@ struct GraphCanvasView: View {
     @State private var liveHighlightedNoteID: Int64?
     @State private var isHoveringBackground = false
     @State private var viewStateSaveTask: DispatchWorkItem?
+    /// Key of the stage currently displayed ("root" = nil isolated note, or "\(noteID)").
+    @State private var currentStageKey: String? = nil
+    /// In-memory cache of saved pan/zoom per stage, seeded from initialStageStates on appear.
+    @State private var stageCache: [String: (pan: CGSize, zoom: CGFloat)] = [:]
 
     private static let doubleTapThreshold: TimeInterval = 0.28
     private static let doubleEscapeThreshold: TimeInterval = 0.35
@@ -112,10 +121,30 @@ struct GraphCanvasView: View {
                 zoomScale = initialZoomScale
                 activeIsolatedNoteID = isolatedNoteID
                 liveHighlightedNoteID = highlightedNoteID
+                currentStageKey = isolatedNoteID.map { "\($0)" }
+                // Root state comes from initialPanOffset / initialZoomScale.
+                stageCache["root"] = (pan: initialPanOffset, zoom: initialZoomScale)
+                // Seed subdirectory stages from persisted stage states.
+                for (key, vals) in initialStageStates where vals.count >= 3 {
+                    stageCache[key] = (pan: CGSize(width: vals[0], height: vals[1]), zoom: CGFloat(vals[2]))
+                }
                 installEventMonitors()
             }
             .onChange(of: highlightedNoteID) { liveHighlightedNoteID = $0 }
             .onChange(of: isolatedNoteID) { next in
+                // Restore the new stage's pan/zoom (saved by flushCurrentStageState at nav sites).
+                let nextKey = next.map { "\($0)" }
+                if let saved = stageCache[nextKey ?? "root"] {
+                    withAnimation(.spring(response: 0.30, dampingFraction: 0.88)) {
+                        panOffset = saved.pan
+                        panStart = saved.pan
+                        zoomScale = saved.zoom
+                    }
+                }
+                // If no saved state: leave pan/zoom as-is (centerNode already set a good position
+                // for forward-nav, or it's root with no prior pan for backward-nav).
+                currentStageKey = nextKey
+
                 activeIsolatedNoteID = next
                 if next != nil {
                     if let next {
@@ -146,6 +175,9 @@ struct GraphCanvasView: View {
             .onChange(of: panOffset) { _ in scheduleViewStateSave() }
             .onChange(of: zoomScale) { _ in scheduleViewStateSave() }
             .onDisappear {
+                viewStateSaveTask?.cancel()
+                viewStateSaveTask = nil
+                onViewStateChange(currentStageKey, panOffset, zoomScale)
                 pendingDoubleAction?.cancel()
                 pendingBackgroundAction?.cancel()
                 backgroundTapCount = 0
@@ -158,6 +190,9 @@ struct GraphCanvasView: View {
                 focusReturnContextID = nil
                 pendingEscapeParentID = nil
                 activeIsolatedNoteID = nil
+                elasticDragSourceNoteID = nil
+                elasticDragTranslation = .zero
+                elasticDragTargetNoteID = nil
                 removeEventMonitors()
             }
         }
@@ -288,6 +323,32 @@ struct GraphCanvasView: View {
                         )
                     }
                 }
+
+                // Elastic drag-to-connect preview
+                if let sourceID = elasticDragSourceNoteID,
+                   let sourceNote = noteMap[sourceID] {
+                    let from = point(for: sourceNote, in: size)
+                    let dx = elasticDragTranslation.width
+                    let dy = elasticDragTranslation.height
+                    let to = CGPoint(x: from.x + dx, y: from.y + dy)
+                    let dist = max(1, hypot(dx, dy))
+                    let c1 = CGPoint(x: from.x, y: from.y + min(dist * 0.55, 90))
+                    let c2 = CGPoint(x: to.x, y: to.y - min(dist * 0.25, 45))
+
+                    var elasticPath = Path()
+                    elasticPath.move(to: from)
+                    elasticPath.addCurve(to: to, control1: c1, control2: c2)
+                    context.stroke(
+                        elasticPath,
+                        with: .color(Color(white: 0.20).opacity(0.75)),
+                        style: StrokeStyle(lineWidth: 2.0, lineCap: .round, dash: [6, 4])
+                    )
+                    let dotRect = CGRect(x: to.x - 4.5, y: to.y - 4.5, width: 9, height: 9)
+                    context.fill(
+                        Path(ellipseIn: dotRect),
+                        with: .color(Color(white: 0.15).opacity(0.85))
+                    )
+                }
             }
             .allowsHitTesting(false)
 
@@ -313,13 +374,15 @@ struct GraphCanvasView: View {
             ForEach(visibleNotes) { note in
                 let isDragging = activeNodeDragID == note.id || activeDragNoteID == note.id
                 let isHighlighted = highlightedNoteID == note.id
-                let showsConnectHandle = isolatedNoteID == nil && isHighlighted
+                let isElasticTarget = elasticDragTargetNoteID == note.id && elasticDragSourceNoteID != note.id
+                let showsConnectHandle = isHighlighted
 
-                ZStack(alignment: .topTrailing) {
+                ZStack(alignment: .bottom) {
                     NodeBubbleView(
                         note: note,
-                        isHighlighted: isHighlighted,
-                        isBeingDragged: isDragging
+                        isHighlighted: isHighlighted || isElasticTarget,
+                        isBeingDragged: isDragging,
+                        style: nodeStyle
                     )
                     .gesture(interactionGesture(for: note.id))
                     .onHover { hovering in
@@ -336,6 +399,7 @@ struct GraphCanvasView: View {
                         Divider()
                         Button("Delete", role: .destructive) {
                             if activeIsolatedNoteID == note.id || isolatedNoteID == note.id {
+                                flushCurrentStageState()
                                 activeIsolatedNoteID = nil
                                 contextualNoteID = nil
                                 pendingEscapeParentID = nil
@@ -349,13 +413,13 @@ struct GraphCanvasView: View {
                     }
 
                     if showsConnectHandle {
-                        connectHandle(for: note.id, isActive: linkingSourceNoteID == note.id)
-                            .offset(x: 10, y: -10)
+                        dragConnectHandle(for: note.id, in: size)
+                            .offset(y: 14)
                     }
                 }
                 .fixedSize()
                 .offset(x: nodeOffsetX(for: note), y: nodeOffsetY(for: note))
-                .zIndex(isDragging ? 4 : (isHighlighted ? 2 : 1))
+                .zIndex(isDragging ? 4 : (isHighlighted ? 2 : (isElasticTarget ? 3 : 1)))
             }
 
             if selectedLink != nil, isolatedNoteID == nil {
@@ -402,7 +466,8 @@ struct GraphCanvasView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
 
-            if let linkingSourceNoteID, let source = noteMap[linkingSourceNoteID], isolatedNoteID == nil {
+            if let elasticSourceID = elasticDragSourceNoteID,
+               let source = noteMap[elasticSourceID] {
                 HStack(spacing: 6) {
                     Image(systemName: "arrow.triangle.branch")
                         .font(.system(size: 11, weight: .semibold))
@@ -413,9 +478,18 @@ struct GraphCanvasView: View {
                     Text(source.title)
                         .font(.system(size: 11, weight: .semibold, design: .rounded))
                         .foregroundStyle(Color(white: 0.12))
-                    Text("· click a node")
-                        .font(.system(size: 11, weight: .regular, design: .rounded))
-                        .foregroundStyle(Color(white: 0.48))
+                    if let targetID = elasticDragTargetNoteID, let target = noteMap[targetID] {
+                        Text("→")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(white: 0.48))
+                        Text(target.title)
+                            .font(.system(size: 11, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(red: 0.20, green: 0.50, blue: 0.90))
+                    } else {
+                        Text("· drop on a node")
+                            .font(.system(size: 11, weight: .regular, design: .rounded))
+                            .foregroundStyle(Color(white: 0.48))
+                    }
                 }
                 .padding(.horizontal, 13)
                 .padding(.vertical, 7)
@@ -439,6 +513,7 @@ struct GraphCanvasView: View {
                         pendingEscapeParentID = nil
                         focusReturnContextID = nil
                         activeIsolatedNoteID = targetID
+                        flushCurrentStageState()
                         onIsolateNode(targetID)
                     }
                 )
@@ -454,6 +529,7 @@ struct GraphCanvasView: View {
                             self.quickCreateDraft?.title = nextTitle
                         }
                     ),
+                    style: nodeStyle,
                     onCancel: {
                         self.quickCreateDraft = nil
                     },
@@ -578,6 +654,7 @@ struct GraphCanvasView: View {
             pendingBackgroundAction = nil
             // Navigate backwards — same semantics as pressing ESC.
             if let currentIsolated = activeIsolatedNoteID {
+                flushCurrentStageState()
                 activeIsolatedNoteID = nil
                 focusReturnContextID = nil
                 pendingEscapeParentID = nil
@@ -737,10 +814,6 @@ struct GraphCanvasView: View {
     }
 
     private func nearestNodeID(from sourceID: Int64, to point: CGPoint) -> Int64? {
-        guard isolatedNoteID == nil else {
-            return nil
-        }
-
         let maxDistance = max(42.0, 86.0 / zoomScale)
         var bestMatch: (id: Int64, distance: CGFloat)?
 
@@ -808,7 +881,12 @@ struct GraphCanvasView: View {
             activeIsolatedNoteID = note.id
             focusReturnContextID = contextualNoteID ?? resolveFocusParentID(note.id) ?? note.id
             onSelect(note)
-            centerNode(note)
+            // Save current stage BEFORE centerNode modifies panOffset.
+            flushCurrentStageState()
+            // Only center on the node for a first visit; returning visits restore saved pan.
+            if stageCache["\(note.id)"] == nil {
+                centerNode(note)
+            }
             onIsolateNode(note.id)
             return
         }
@@ -818,11 +896,23 @@ struct GraphCanvasView: View {
         viewStateSaveTask?.cancel()
         let pan = panOffset
         let zoom = zoomScale
+        let key = currentStageKey
         let task = DispatchWorkItem {
-            onViewStateChange(pan, zoom)
+            onViewStateChange(key, pan, zoom)
         }
         viewStateSaveTask = task
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6, execute: task)
+    }
+
+    /// Snapshot the current stage's pan/zoom into the in-memory cache and persist to disk
+    /// immediately. Must be called BEFORE any state change that modifies panOffset/zoomScale
+    /// (e.g. centerNode) or triggers a stage transition (onIsolateNode).
+    private func flushCurrentStageState() {
+        viewStateSaveTask?.cancel()
+        viewStateSaveTask = nil
+        let key = currentStageKey ?? "root"
+        stageCache[key] = (pan: panOffset, zoom: zoomScale)
+        onViewStateChange(currentStageKey, panOffset, zoomScale)
     }
 
     private func clampedScale(_ proposed: CGFloat) -> CGFloat {
@@ -862,30 +952,48 @@ struct GraphCanvasView: View {
         }
     }
 
-    private func connectHandle(for noteID: Int64, isActive: Bool) -> some View {
-        Button {
-            pendingDoubleAction?.cancel()
-            pendingDoubleAction = nil
-            tapSequenceNoteID = nil
-            tapCount = 0
-            selectedLink = nil
-
-            if isActive {
-                linkingSourceNoteID = nil
-            } else {
-                linkingSourceNoteID = noteID
-            }
-        } label: {
-            Image(systemName: isActive ? "xmark" : "plus")
-                .font(.system(size: 10, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(7)
-                .background(isActive ? Color(red: 0.82, green: 0.18, blue: 0.15) : Color(white: 0.15))
-                .clipShape(Circle())
-                .shadow(color: Color.black.opacity(0.15), radius: 4, y: 2)
-        }
-        .buttonStyle(.plain)
-        .help(isActive ? "Cancel connect mode" : "Create a connection")
+    private func dragConnectHandle(for noteID: Int64, in size: CGSize) -> some View {
+        Circle()
+            .fill(elasticDragSourceNoteID == noteID ? Color(red: 0.20, green: 0.50, blue: 0.90) : Color(white: 0.18))
+            .overlay(
+                Image(systemName: "plus")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+            )
+            .frame(width: 20, height: 20)
+            .shadow(color: Color.black.opacity(0.18), radius: 4, y: 2)
+            .scaleEffect(elasticDragSourceNoteID == noteID ? 1.15 : 1.0)
+            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: elasticDragSourceNoteID == noteID)
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                    .onChanged { value in
+                        let dist = hypot(value.translation.width, value.translation.height)
+                        guard dist > 4 else { return }
+                        if elasticDragSourceNoteID != noteID {
+                            elasticDragSourceNoteID = noteID
+                            linkingSourceNoteID = nil
+                            selectedLink = nil
+                            quickCreateDraft = nil
+                        }
+                        elasticDragTranslation = value.translation
+                        if let sourceNote = noteMap[noteID] {
+                            let from = point(for: sourceNote, in: size)
+                            let to = CGPoint(x: from.x + value.translation.width,
+                                            y: from.y + value.translation.height)
+                            let graphEnd = graphPoint(from: to, in: size)
+                            elasticDragTargetNoteID = nearestNodeID(from: noteID, to: graphEnd)
+                        }
+                    }
+                    .onEnded { _ in
+                        if let targetID = elasticDragTargetNoteID {
+                            onConnect(noteID, targetID)
+                        }
+                        elasticDragSourceNoteID = nil
+                        elasticDragTranslation = .zero
+                        elasticDragTargetNoteID = nil
+                    }
+            )
+            .help("Drag to connect to another node")
     }
 
     private func commitQuickCreate() {
@@ -912,6 +1020,7 @@ struct GraphCanvasView: View {
         if let focusParentID {
             activeIsolatedNoteID = focusParentID
             focusReturnContextID = focusParentID
+            flushCurrentStageState()
             onIsolateNode(focusParentID)
         }
         self.quickCreateDraft = nil
@@ -944,6 +1053,7 @@ struct GraphCanvasView: View {
                     }
 
                     if activeIsolatedNoteID == targetNoteID || isolatedNoteID == targetNoteID {
+                        flushCurrentStageState()
                         activeIsolatedNoteID = nil
                         contextualNoteID = nil
                         pendingEscapeParentID = nil
@@ -984,6 +1094,7 @@ struct GraphCanvasView: View {
                     }
 
                     if let isolatedNoteID = activeIsolatedNoteID {
+                        flushCurrentStageState()
                         activeIsolatedNoteID = nil
                         focusReturnContextID = nil
                         pendingEscapeParentID = nil
@@ -1219,6 +1330,7 @@ private struct QuickCreateDraft {
 
 private struct QuickCreateNodeBubble: View {
     @Binding var title: String
+    let style: NodeStyleConfig
     let onCancel: () -> Void
     let onCreate: () -> Void
 
@@ -1236,7 +1348,7 @@ private struct QuickCreateNodeBubble: View {
                     .foregroundColor(Color(white: 0.62))
             )
             .textFieldStyle(.plain)
-            .font(.system(size: 14, weight: .semibold, design: .rounded))
+            .font(.system(size: style.titleFontSize, weight: .semibold, design: .rounded))
             .foregroundStyle(Color(white: 0.10))
             .frame(minWidth: 150, maxWidth: 260)
             .focused($isFocused)
@@ -1256,12 +1368,12 @@ private struct QuickCreateNodeBubble: View {
                     .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, style.paddingH)
+        .padding(.vertical, style.paddingV)
         .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .clipShape(RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous))
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
                 .stroke(Color.black.opacity(0.14), lineWidth: 1.5)
         )
         .shadow(color: Color.black.opacity(0.10), radius: 10, y: 4)
@@ -1280,6 +1392,7 @@ private struct NodeBubbleView: View {
     let note: Note
     let isHighlighted: Bool
     let isBeingDragged: Bool
+    let style: NodeStyleConfig
 
     private var nodeScale: CGFloat {
         isBeingDragged ? 1.06 : (isHighlighted ? 1.04 : 1.0)
@@ -1312,25 +1425,25 @@ private struct NodeBubbleView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(note.title)
-                .font(.system(size: 14, weight: .semibold, design: .rounded))
+                .font(.system(size: style.titleFontSize, weight: .semibold, design: .rounded))
                 .foregroundStyle(Color(white: 0.10))
                 .lineLimit(1)
 
             if !note.subtitle.isEmpty {
                 Text(note.subtitle)
-                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .font(.system(size: style.subtitleFontSize, weight: .regular, design: .rounded))
                     .foregroundStyle(Color(white: 0.48))
                     .lineLimit(1)
             }
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 9)
+        .padding(.horizontal, style.paddingH)
+        .padding(.vertical, style.paddingV)
         .background(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
                 .fill(bubbleFillColor)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
+            RoundedRectangle(cornerRadius: style.cornerRadius, style: .continuous)
                 .stroke(bubbleStrokeColor, lineWidth: bubbleStrokeWidth)
         )
         .shadow(color: Color.black.opacity(0.08), radius: 8, y: 3)

@@ -5,6 +5,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
     case appearance
     case shortcuts
     case canvas
+    case nodes
     case editor
 
     var id: String { rawValue }
@@ -14,6 +15,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .appearance: return "Appearance"
         case .shortcuts: return "Shortcuts"
         case .canvas: return "Canvas"
+        case .nodes: return "Nodes"
         case .editor: return "Editor"
         }
     }
@@ -23,6 +25,7 @@ private enum SettingsSection: String, CaseIterable, Identifiable {
         case .appearance: return "paintpalette"
         case .shortcuts: return "keyboard"
         case .canvas: return "cursorarrow.rays"
+        case .nodes: return "oval"
         case .editor: return "doc.text"
         }
     }
@@ -91,6 +94,7 @@ struct SettingsPanel: View {
                         case .appearance: appearanceContent
                         case .shortcuts: shortcutsContent
                         case .canvas: canvasContent
+                        case .nodes: nodesContent
                         case .editor: editorContent
                         }
                     }
@@ -159,40 +163,18 @@ struct SettingsPanel: View {
 
                 rowDivider()
 
-                // In-app search key
+                // In-app search hotkey recorder
                 HStack(alignment: .center, spacing: 16) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("In-App Search")
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(Color(white: 0.12))
-                        Text("⌘ + your key while GraphAlfred is active")
+                        Text("Works while GraphAlfred is the active window")
                             .font(.system(size: 11, weight: .regular, design: .rounded))
                             .foregroundStyle(Color(white: 0.52))
                     }
                     Spacer()
-                    HStack(spacing: 6) {
-                        Text("⌘ +")
-                            .font(.system(size: 13, weight: .medium, design: .rounded))
-                            .foregroundStyle(Color(white: 0.40))
-                        TextField("", text: Binding(
-                            get: { settings.inAppSearchKey },
-                            set: { new in
-                                let filtered = new.filter { $0.isLetter || $0.isNumber }
-                                if let ch = filtered.last {
-                                    settings.inAppSearchKey = String(ch).lowercased()
-                                }
-                            }
-                        ))
-                        .textFieldStyle(.plain)
-                        .font(.system(size: 14, weight: .bold, design: .monospaced))
-                        .foregroundStyle(Color(white: 0.12))
-                        .frame(width: 28, height: 28)
-                        .multilineTextAlignment(.center)
-                        .background(Color.white.opacity(0.80))
-                        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                        .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .stroke(Color.black.opacity(0.12), lineWidth: 1))
-                    }
+                    HotKeyRecorderView(config: $settings.inAppHotKeyConfig)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 14)
@@ -221,6 +203,69 @@ struct SettingsPanel: View {
                     isOn: $settings.dragToConnectEnabled
                 )
             }
+        }
+    }
+
+    // MARK: – Nodes
+
+    private var nodesContent: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            sectionLabel("Node Style", detail: "Adjust the look of graph nodes. Changes apply instantly.")
+
+            settingsCard {
+                numericRow(
+                    label: "Title Font Size",
+                    detail: "Size of the node title text",
+                    value: $settings.nodeTitleFontSize,
+                    range: 10...22,
+                    unit: "pt"
+                )
+                rowDivider()
+                numericRow(
+                    label: "Subtitle Font Size",
+                    detail: "Size of the node subtitle text",
+                    value: $settings.nodeSubtitleFontSize,
+                    range: 8...18,
+                    unit: "pt"
+                )
+            }
+
+            settingsCard {
+                numericRow(
+                    label: "Horizontal Padding",
+                    detail: "Space inside the node, left and right",
+                    value: $settings.nodePaddingH,
+                    range: 6...32,
+                    unit: "pt"
+                )
+                rowDivider()
+                numericRow(
+                    label: "Vertical Padding",
+                    detail: "Space inside the node, top and bottom",
+                    value: $settings.nodePaddingV,
+                    range: 4...22,
+                    unit: "pt"
+                )
+            }
+
+            settingsCard {
+                numericRow(
+                    label: "Corner Radius",
+                    detail: "Rounding of the node bubble corners",
+                    value: $settings.nodeCornerRadius,
+                    range: 0...24,
+                    unit: "pt"
+                )
+            }
+
+            Button("Reset to Defaults") {
+                settings.nodeTitleFontSize = 14
+                settings.nodeSubtitleFontSize = 11
+                settings.nodePaddingH = 14
+                settings.nodePaddingV = 9
+                settings.nodeCornerRadius = 12
+            }
+            .buttonStyle(GraphSecondaryButtonStyle())
         }
     }
 
@@ -304,6 +349,24 @@ struct SettingsPanel: View {
             Toggle("", isOn: isOn)
                 .toggleStyle(.switch)
                 .labelsHidden()
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 14)
+    }
+
+    @ViewBuilder
+    private func numericRow(label: String, detail: String, value: Binding<Double>, range: ClosedRange<Double>, step: Double = 1, unit: String) -> some View {
+        HStack(alignment: .center, spacing: 16) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(label)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color(white: 0.12))
+                Text(detail)
+                    .font(.system(size: 11, weight: .regular, design: .rounded))
+                    .foregroundStyle(Color(white: 0.52))
+            }
+            Spacer()
+            NumericStepField(value: value, range: range, step: step, unit: unit)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 14)
@@ -540,6 +603,117 @@ private struct HotKeyRecorderView: View {
         case 121: return "PgDn"
         default:
             return characters?.uppercased().first.map(String.init) ?? "?"
+        }
+    }
+}
+
+// MARK: – Numeric step field (scroll-to-change)
+
+private struct NumericStepField: View {
+    @Binding var value: Double
+    let range: ClosedRange<Double>
+    let step: Double
+    let unit: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Button { decrement() } label: {
+                Image(systemName: "minus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 26, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(white: 0.40))
+
+            Rectangle()
+                .fill(Color.black.opacity(0.06))
+                .frame(width: 1, height: 14)
+
+            Text("\(Int(value))\(unit)")
+                .font(.system(size: 12, weight: .bold, design: .monospaced))
+                .foregroundStyle(Color(white: 0.20))
+                .frame(minWidth: 42, alignment: .center)
+                .padding(.horizontal, 4)
+
+            Rectangle()
+                .fill(Color.black.opacity(0.06))
+                .frame(width: 1, height: 14)
+
+            Button { increment() } label: {
+                Image(systemName: "plus")
+                    .font(.system(size: 10, weight: .semibold))
+                    .frame(width: 26, height: 30)
+            }
+            .buttonStyle(.plain)
+            .foregroundStyle(Color(white: 0.40))
+        }
+        .background(
+            ScrollWheelCapture { delta in
+                let newVal = value + delta * step
+                value = max(range.lowerBound, min(range.upperBound, round(newVal / step) * step))
+            }
+        )
+        .background(Color.black.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .stroke(Color.black.opacity(0.10), lineWidth: 1)
+        )
+    }
+
+    private func increment() {
+        value = min(value + step, range.upperBound)
+    }
+
+    private func decrement() {
+        value = max(value - step, range.lowerBound)
+    }
+}
+
+private struct ScrollWheelCapture: NSViewRepresentable {
+    let onScroll: (Double) -> Void
+
+    func makeNSView(context: Context) -> ScrollableNSView {
+        ScrollableNSView(onScroll: onScroll)
+    }
+
+    func updateNSView(_ nsView: ScrollableNSView, context: Context) {
+        nsView.onScroll = onScroll
+    }
+
+    class ScrollableNSView: NSView {
+        var onScroll: (Double) -> Void
+        private var accumulated: Double = 0
+
+        init(onScroll: @escaping (Double) -> Void) {
+            self.onScroll = onScroll
+            super.init(frame: .zero)
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func scrollWheel(with event: NSEvent) {
+            let delta = event.scrollingDeltaY
+            guard abs(delta) > 0.1 else {
+                super.scrollWheel(with: event)
+                return
+            }
+            // Discrete mouse wheel: each event fires once with a larger delta.
+            // Trackpad: many small events with cumulative delta.
+            if event.phase == [] {
+                // Traditional mouse wheel — respond per event.
+                onScroll(delta > 0 ? 1 : -1)
+            } else {
+                accumulated += delta
+                let threshold: Double = 12
+                while abs(accumulated) >= threshold {
+                    onScroll(accumulated > 0 ? 1 : -1)
+                    accumulated -= accumulated > 0 ? threshold : -threshold
+                }
+                if event.phase == .ended || event.momentumPhase == .ended {
+                    accumulated = 0
+                }
+            }
         }
     }
 }

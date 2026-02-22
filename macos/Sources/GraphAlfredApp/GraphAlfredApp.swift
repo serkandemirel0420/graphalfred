@@ -48,10 +48,9 @@ struct GraphAlfredApp: App {
             }
 
             CommandMenu("Search") {
-                Button("Quick Search (Window)") {
+                Button("Quick Search (\(viewModel.settings.inAppHotKeyConfig.displayString))") {
                     viewModel.showSearch()
                 }
-                .keyboardShortcut(viewModel.settings.inAppSearchKey.asKeyEquivalent, modifiers: [.command])
 
                 Button("Global Hotkey: \(viewModel.settings.globalHotKeyConfig.displayString)") {}
                     .disabled(true)

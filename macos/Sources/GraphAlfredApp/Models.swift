@@ -79,6 +79,19 @@ struct NoteDraft: Identifiable {
     }
 }
 
+struct NodeStyleConfig {
+    var titleFontSize: CGFloat
+    var subtitleFontSize: CGFloat
+    var paddingH: CGFloat
+    var paddingV: CGFloat
+    var cornerRadius: CGFloat
+
+    static let `default` = NodeStyleConfig(
+        titleFontSize: 14, subtitleFontSize: 11,
+        paddingH: 14, paddingV: 9, cornerRadius: 12
+    )
+}
+
 enum AppTheme: String, Codable, CaseIterable, Identifiable {
     case graphite
     case ocean
@@ -122,12 +135,14 @@ struct HotKeyConfig: Codable, Equatable {
 
     static let `default` = HotKeyConfig(keyCode: 49, modifiers: 2048, displayString: "⌥ Space", disabled: false)
     static let off = HotKeyConfig(keyCode: 0, modifiers: 0, displayString: "Disabled", disabled: true)
+    /// ⌘K — default in-app search hotkey
+    static let cmdK = HotKeyConfig(keyCode: 40, modifiers: 256, displayString: "⌘K", disabled: false)
 }
 
 struct AppSettings: Codable, Equatable {
     var theme: AppTheme = .graphite
-    /// Single character key for in-app search (used as Cmd + key).
-    var inAppSearchKey: String = "k"
+    /// Recorded in-app search hotkey (replaces single-char inAppSearchKey).
+    var inAppHotKeyConfig: HotKeyConfig = .cmdK
     /// Recorded global hotkey configuration.
     var globalHotKeyConfig: HotKeyConfig = .default
     var rightClickPanEnabled: Bool = true
@@ -136,28 +151,52 @@ struct AppSettings: Codable, Equatable {
     var canvasPanX: Double = 0
     var canvasPanY: Double = 0
     var canvasZoom: Double = 1.0
+    /// Per-stage pan/zoom. Key = "root" or "\(noteID)". Value = [panX, panY, zoom].
+    var stageStates: [String: [Double]] = [:]
+    var nodeTitleFontSize: Double = 14
+    var nodeSubtitleFontSize: Double = 11
+    var nodePaddingH: Double = 14
+    var nodePaddingV: Double = 9
+    var nodeCornerRadius: Double = 12
+
+    var nodeStyleConfig: NodeStyleConfig {
+        NodeStyleConfig(
+            titleFontSize: CGFloat(nodeTitleFontSize),
+            subtitleFontSize: CGFloat(nodeSubtitleFontSize),
+            paddingH: CGFloat(nodePaddingH),
+            paddingV: CGFloat(nodePaddingV),
+            cornerRadius: CGFloat(nodeCornerRadius)
+        )
+    }
 
     static let `default` = AppSettings()
 
     private enum CodingKeys: String, CodingKey {
-        case theme, inAppSearchKey, globalHotKeyConfig
+        case theme, inAppHotKeyConfig, inAppSearchKey, globalHotKeyConfig
         case rightClickPanEnabled, dragToConnectEnabled, editorOpensAsModal
-        case canvasPanX, canvasPanY, canvasZoom
+        case canvasPanX, canvasPanY, canvasZoom, stageStates
+        case nodeTitleFontSize, nodeSubtitleFontSize, nodePaddingH, nodePaddingV, nodeCornerRadius
     }
 
     init(
         theme: AppTheme = .graphite,
-        inAppSearchKey: String = "k",
+        inAppHotKeyConfig: HotKeyConfig = .cmdK,
         globalHotKeyConfig: HotKeyConfig = .default,
         rightClickPanEnabled: Bool = true,
         dragToConnectEnabled: Bool = false,
         editorOpensAsModal: Bool = false,
         canvasPanX: Double = 0,
         canvasPanY: Double = 0,
-        canvasZoom: Double = 1.0
+        canvasZoom: Double = 1.0,
+        stageStates: [String: [Double]] = [:],
+        nodeTitleFontSize: Double = 14,
+        nodeSubtitleFontSize: Double = 11,
+        nodePaddingH: Double = 14,
+        nodePaddingV: Double = 9,
+        nodeCornerRadius: Double = 12
     ) {
         self.theme = theme
-        self.inAppSearchKey = inAppSearchKey
+        self.inAppHotKeyConfig = inAppHotKeyConfig
         self.globalHotKeyConfig = globalHotKeyConfig
         self.rightClickPanEnabled = rightClickPanEnabled
         self.dragToConnectEnabled = dragToConnectEnabled
@@ -165,12 +204,23 @@ struct AppSettings: Codable, Equatable {
         self.canvasPanX = canvasPanX
         self.canvasPanY = canvasPanY
         self.canvasZoom = canvasZoom
+        self.stageStates = stageStates
+        self.nodeTitleFontSize = nodeTitleFontSize
+        self.nodeSubtitleFontSize = nodeSubtitleFontSize
+        self.nodePaddingH = nodePaddingH
+        self.nodePaddingV = nodePaddingV
+        self.nodeCornerRadius = nodeCornerRadius
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         theme = try container.decodeIfPresent(AppTheme.self, forKey: .theme) ?? .graphite
-        inAppSearchKey = try container.decodeIfPresent(String.self, forKey: .inAppSearchKey) ?? "k"
+        // Prefer new inAppHotKeyConfig; fall back to legacy inAppSearchKey
+        if let config = try container.decodeIfPresent(HotKeyConfig.self, forKey: .inAppHotKeyConfig) {
+            inAppHotKeyConfig = config
+        } else {
+            inAppHotKeyConfig = .cmdK
+        }
         globalHotKeyConfig = try container.decodeIfPresent(HotKeyConfig.self, forKey: .globalHotKeyConfig) ?? .default
         rightClickPanEnabled = try container.decodeIfPresent(Bool.self, forKey: .rightClickPanEnabled) ?? true
         dragToConnectEnabled = try container.decodeIfPresent(Bool.self, forKey: .dragToConnectEnabled) ?? false
@@ -178,12 +228,18 @@ struct AppSettings: Codable, Equatable {
         canvasPanX = try container.decodeIfPresent(Double.self, forKey: .canvasPanX) ?? 0
         canvasPanY = try container.decodeIfPresent(Double.self, forKey: .canvasPanY) ?? 0
         canvasZoom = try container.decodeIfPresent(Double.self, forKey: .canvasZoom) ?? 1.0
+        stageStates = try container.decodeIfPresent([String: [Double]].self, forKey: .stageStates) ?? [:]
+        nodeTitleFontSize = try container.decodeIfPresent(Double.self, forKey: .nodeTitleFontSize) ?? 14
+        nodeSubtitleFontSize = try container.decodeIfPresent(Double.self, forKey: .nodeSubtitleFontSize) ?? 11
+        nodePaddingH = try container.decodeIfPresent(Double.self, forKey: .nodePaddingH) ?? 14
+        nodePaddingV = try container.decodeIfPresent(Double.self, forKey: .nodePaddingV) ?? 9
+        nodeCornerRadius = try container.decodeIfPresent(Double.self, forKey: .nodeCornerRadius) ?? 12
     }
 
     func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(theme, forKey: .theme)
-        try container.encode(inAppSearchKey, forKey: .inAppSearchKey)
+        try container.encode(inAppHotKeyConfig, forKey: .inAppHotKeyConfig)
         try container.encode(globalHotKeyConfig, forKey: .globalHotKeyConfig)
         try container.encode(rightClickPanEnabled, forKey: .rightClickPanEnabled)
         try container.encode(dragToConnectEnabled, forKey: .dragToConnectEnabled)
@@ -191,6 +247,12 @@ struct AppSettings: Codable, Equatable {
         try container.encode(canvasPanX, forKey: .canvasPanX)
         try container.encode(canvasPanY, forKey: .canvasPanY)
         try container.encode(canvasZoom, forKey: .canvasZoom)
+        try container.encode(stageStates, forKey: .stageStates)
+        try container.encode(nodeTitleFontSize, forKey: .nodeTitleFontSize)
+        try container.encode(nodeSubtitleFontSize, forKey: .nodeSubtitleFontSize)
+        try container.encode(nodePaddingH, forKey: .nodePaddingH)
+        try container.encode(nodePaddingV, forKey: .nodePaddingV)
+        try container.encode(nodeCornerRadius, forKey: .nodeCornerRadius)
     }
 }
 

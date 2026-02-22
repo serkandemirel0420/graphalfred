@@ -183,10 +183,14 @@ final class GraphViewModel: ObservableObject {
         AppSettingsStore.save(settings)
     }
 
-    func saveCanvasViewState(panX: Double, panY: Double, zoom: Double) {
-        settings.canvasPanX = panX
-        settings.canvasPanY = panY
-        settings.canvasZoom = zoom
+    func saveCanvasViewState(stageKey: String?, panX: Double, panY: Double, zoom: Double) {
+        if let key = stageKey {
+            settings.stageStates[key] = [panX, panY, zoom]
+        } else {
+            settings.canvasPanX = panX
+            settings.canvasPanY = panY
+            settings.canvasZoom = zoom
+        }
         AppSettingsStore.save(settings)
     }
 

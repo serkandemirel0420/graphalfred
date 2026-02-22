@@ -6,6 +6,7 @@ struct ContentView: View {
     @State private var hotKeyManager = GlobalHotKeyManager()
     @State private var isEditorExpanded = false
     @State private var canvasControlCommand: CanvasControlCommandToken?
+    @State private var inAppSearchMonitor: Any?
 
     var body: some View {
         ZStack(alignment: .trailing) {
@@ -77,7 +78,6 @@ struct ContentView: View {
                             Text("Search")
                         }
                     }
-                    .keyboardShortcut(viewModel.settings.inAppSearchKey.asKeyEquivalent, modifiers: .command)
                     .buttonStyle(GraphSecondaryButtonStyle())
 
                     Spacer()
@@ -155,8 +155,8 @@ struct ContentView: View {
                     onDragStateChange: { noteID in
                         viewModel.setActiveDragNote(id: noteID)
                     },
-                    onViewStateChange: { pan, zoom in
-                        viewModel.saveCanvasViewState(panX: pan.width, panY: pan.height, zoom: zoom)
+                    onViewStateChange: { stageKey, pan, zoom in
+                        viewModel.saveCanvasViewState(stageKey: stageKey, panX: pan.width, panY: pan.height, zoom: zoom)
                     },
                     onEscapeEditor: {
                         guard viewModel.editingDraft != nil else { return false }
@@ -168,7 +168,9 @@ struct ContentView: View {
                         width: viewModel.settings.canvasPanX,
                         height: viewModel.settings.canvasPanY
                     ),
-                    initialZoomScale: viewModel.settings.canvasZoom
+                    initialZoomScale: viewModel.settings.canvasZoom,
+                    initialStageStates: viewModel.settings.stageStates,
+                    nodeStyle: viewModel.settings.nodeStyleConfig
                 )
             }
             .padding(24)
@@ -225,10 +227,12 @@ struct ContentView: View {
         }
         .task {
             restartGlobalHotKey()
+            reinstallInAppSearchMonitor()
             await viewModel.boot()
         }
         .onDisappear {
             hotKeyManager.stop()
+            removeInAppSearchMonitor()
         }
         .onChange(of: viewModel.searchText) { _ in
             Task {
@@ -237,6 +241,9 @@ struct ContentView: View {
         }
         .onChange(of: viewModel.settings.globalHotKeyConfig) { _ in
             restartGlobalHotKey()
+        }
+        .onChange(of: viewModel.settings.inAppHotKeyConfig) { _ in
+            reinstallInAppSearchMonitor()
         }
         .onChange(of: viewModel.editingDraft?.id) { next in
             if next == nil {
@@ -317,6 +324,36 @@ struct ContentView: View {
             Task { @MainActor in
                 viewModel.showSearchFromGlobalHotKey()
             }
+        }
+    }
+
+    private func reinstallInAppSearchMonitor() {
+        removeInAppSearchMonitor()
+        let config = viewModel.settings.inAppHotKeyConfig
+        guard !config.disabled else { return }
+        inAppSearchMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak viewModel] event in
+            guard let viewModel else { return event }
+            guard UInt32(event.keyCode) == config.keyCode else { return event }
+            let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let wantsCmd   = (config.modifiers & 256)  != 0
+            let wantsOpt   = (config.modifiers & 2048) != 0
+            let wantsCtrl  = (config.modifiers & 4096) != 0
+            let wantsShift = (config.modifiers & 512)  != 0
+            guard flags.contains(.command)  == wantsCmd,
+                  flags.contains(.option)   == wantsOpt,
+                  flags.contains(.control)  == wantsCtrl,
+                  flags.contains(.shift)    == wantsShift else { return event }
+            guard let responder = NSApp.keyWindow?.firstResponder,
+                  !(responder is NSTextView) else { return event }
+            Task { @MainActor in viewModel.showSearch() }
+            return nil
+        }
+    }
+
+    private func removeInAppSearchMonitor() {
+        if let monitor = inAppSearchMonitor {
+            NSEvent.removeMonitor(monitor)
+            inAppSearchMonitor = nil
         }
     }
 

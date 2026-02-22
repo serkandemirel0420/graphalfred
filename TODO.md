@@ -1,19 +1,16 @@
- 
 
- there should be pluss button small on bottom of node, there shoudl be string like not just stragit line it shoudl stretch as i drag and i should be able to connect
+in settings tabs, i have to click to text of the button, empty space part of the button wont trigger click..
 
-when editor in modal style when closing there is animation left on the right side
-
-
-whenever i change the positon or stage zoom position it should be remembered saved..
+there should be settings(backup) of where the json files are stored, every document should be as json as well for backup purposes, it should be in the settings.store settings of the app too.
 
 
--store settings of the app too.
-
-there should be settings of where the json files are stored, every document should be as json as well for backup purposes
-
-in app search hot key should be changable
+when in some sub folde rif i create a node and try to connect i get they should be in the same layer error, thay are already in the same layer
 
 
-- add ci/cd - add auto update in settings.
-- performance update
+add ci/cd - add auto update in settings.
+
+addperformance update
+
+there shoudl be setting visual setting for the new creating node textbox, fontsize margin padding etc..
+
+new create text box shows up delayed, performance issue or something else...
